@@ -1,0 +1,27 @@
+mikan:
+  # Mikan 镜像站地址
+  base_url: https://mikan.tangbai.cc
+  # 登录网站 → 「订阅」页面右侧复制你的个人 RSS 链接（含 token=），整段粘贴到下面
+  rss_url: https://mikan.tangbai.cc/Feed/MyBangumi?token=替换成你的token
+  # 推荐：先运行 python -m mqd.login 完成首次登录，会话自动保存到该文件
+  session_file: data/session.json
+  # 兜底（不推荐，易过期）：手动从浏览器复制的 Cookie 串，形如 "k1=v1; k2=v2"
+  cookie_string: ""
+  # 留空则由 login 自动记录；务必与会话保持一致（cf_clearance 绑定 UA）
+  user_agent: ""
+
+qbittorrent:
+  base_url: http://127.0.0.1:8080
+  username: admin
+  password: "改成WebUI密码"
+  # 本工具添加的种子都归到这个分类，限额统计与其他下载互不干扰
+  category: bangumi
+  save_path: ""      # 留空使用 qBt 默认保存路径
+  ratio_limit: null  # 做种分享率上限，例如 1.0；null 不限制
+
+quota:
+  daily_limit_gb: 30
+
+monitor:
+  interval_minutes: 20
+  db_file: data/state.db

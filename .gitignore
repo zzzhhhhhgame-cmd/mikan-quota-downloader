@@ -1,0 +1,17 @@
+# 运行数据与凭据（会话/数据库/配置密钥）——绝不入库
+data/
+config.yaml
+cookies*.json
+session*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 系统/编辑器
+.DS_Store
+*.log
+.idea/
+.vscode/

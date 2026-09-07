@@ -1,0 +1,7 @@
+curl-cffi>=0.7
+requests>=2.31
+feedparser>=6.0
+PyYAML>=6.0
+
+# 首次登录辅助（python -m mqd.login 需要，可后装）
+# playwright>=1.45
