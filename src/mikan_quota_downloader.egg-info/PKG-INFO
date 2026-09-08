@@ -1,0 +1,19 @@
+Metadata-Version: 2.4
+Name: mikan-quota-downloader
+Version: 0.2.0
+Summary: Mikan 订阅自动追番：订阅监控 + 下载引擎 + 每日限额（V1 脚本；V2 桌面端见 PLAN-DESKTOP.md）
+Requires-Python: >=3.9
+License-File: LICENSE
+Requires-Dist: curl-cffi>=0.7
+Requires-Dist: requests>=2.31
+Requires-Dist: feedparser>=6.0
+Requires-Dist: PyYAML>=6.0
+Provides-Extra: desktop
+Requires-Dist: pywebview>=5; extra == "desktop"
+Requires-Dist: fastapi>=0.111; extra == "desktop"
+Requires-Dist: uvicorn>=0.30; extra == "desktop"
+Requires-Dist: psutil>=5.9; extra == "desktop"
+Requires-Dist: libtorrent>=2.0; platform_system != "Darwin" and extra == "desktop"
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+Dynamic: license-file

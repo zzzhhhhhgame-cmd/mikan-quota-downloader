@@ -15,8 +15,9 @@ BT 流量绑定物理网卡**直连不经过 VPN**。macOS / Windows 双端可�
 
 🚧 V1 脚本与 V2 桌面端并行推进：V1 的限额/记账/qBt 客户端可用；V2 已完成引擎抽象
 （内嵌 libtorrent 主线 + qBt 后备）、**下载/做种双限额守门**（测试期 1GB/1GB）、
-**BT 网卡直连**、**指定下载地址**（全局默认 + 任务级覆盖）、桌面壳与登录向导，
-63 项单测全绿；订阅追更闭环（M3）待做。
+**BT 网卡直连**、**指定下载地址**（全局默认 + 任务级覆盖）、桌面壳与登录向导。
+64 项单测全绿；已用真实 libtorrent 引擎实机验证全链路（设置目录 → 手动添加 →
+限额开始/排队 → 任务控制）。订阅追更闭环（M3）待做。
 
 ## 快速开始
 
@@ -46,6 +47,11 @@ python -m mqd
 # 依赖（需 Python 3.10+，本仓库已验证 3.14）
 python3 -m venv .venv
 .venv/bin/pip install -e ".[desktop]"
+
+# macOS 内嵌引擎（可选；不装则自动回退 qBt 引擎）
+brew install libtorrent-rasterbar
+echo "$(brew --prefix libtorrent-rasterbar)/lib/python3.14/site-packages" \
+  > .venv/lib/python3.14/site-packages/libtorrent-brew.pth
 
 # 桌面应用（默认弹窗；pywebview 不可用时自动退化为浏览器）
 .venv/bin/python desktop/app.py --config config.yaml

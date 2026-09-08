@@ -48,7 +48,7 @@ async def add_task(request: Request, save_path: str = "", sequential: bool = Fal
     except ValueError:
         raise HTTPException(422, "不是有效的 .torrent 文件")
     except EngineError as exc:
-        raise HTTPException(503, f"引擎添加失败：{exc}")
+        raise HTTPException(422, str(exc))
     return {
         "sha": infohash_from_bytes(raw),
         "started": decision.start,

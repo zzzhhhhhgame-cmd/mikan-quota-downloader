@@ -69,15 +69,21 @@ class LibtorrentEngine(Engine):
         self._stop.set()
         self._thread.join(timeout=3)
         self._session.pause()
-        self._session.abort()
+        abort = getattr(self._session, "abort", None)  # libtorrent 2.1+ 移除了 abort()
+        if callable(abort):
+            abort()
 
     # ---- Engine 接口 ----
 
     def add(self, data: bytes, *, paused: bool, save_path: str, sequential: bool = False, category: str = "") -> str:
+        try:
+            ti = lt.torrent_info(lt.bdecode(data))
+        except (RuntimeError, ValueError, TypeError, KeyError) as exc:
+            # libtorrent 对元数据校验严格（piece 长度/哈希数量等），统一转成契约内异常
+            raise EngineError(f"无效的 .torrent 文件：{exc}") from exc
         sha = infohash_from_bytes(data)
         if any(t.sha == sha for t in self.list()):
             return sha  # 幂等：重复添加直接返回已有任务
-        ti = lt.torrent_info(lt.bdecode(data))
         atp = lt.add_torrent_params()
         atp.ti = ti
         atp.save_path = save_path or self._default_save_path

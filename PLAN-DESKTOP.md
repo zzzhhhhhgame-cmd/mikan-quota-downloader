@@ -228,7 +228,7 @@ Mikan 网页/API 会话不受影响（仍走系统默认路由，需要代理时
 | | macOS (Apple Silicon) | Windows x64 |
 |---|---|---|
 | 运行时 | PyInstaller 打包 `.app` | PyInstaller 打包免安装目录 + `.exe` |
-| libtorrent | ⚠️ PyPI 无官方 mac 轮子：`brew install libtorrent`（开发）或源码构建后**随包捆绑 dylib** | PyPI 官方轮子，直接内嵌 |
+| libtorrent | ✅ 已实测：PyPI 无 mac 轮子，但 `brew install libtorrent-rasterbar`（2.1.1 自带 **python3.14** 绑定）可用；venv 用 `.pth` 指向其 site-packages 即可，源码构建捆绑留给打包期 | PyPI 官方轮子，直接内嵌 |
 | WebView | 系统 WKWebView，零依赖 | WebView2（Win10/11 一般已内置，缺则引导装 Evergreen 运行时） |
 | 签名 | ad-hoc 签名（个人使用免开发者账号；首次打开右键打开） | 未签名 exe 会触发 SmartScreen 提示，文档说明"仍要运行" |
 | 自动更新 | 不做（人工替换），M6 再议 | 同左 |
@@ -250,7 +250,7 @@ Mikan 网页/API 会话不受影响（仍走系统默认路由，需要代理时
 
 | 风险 | 影响 | 对策 |
 |---|---|---|
-| libtorrent 在 macOS 无官方 PyPI 轮子 | 打包受阻 | 开发期 `brew install libtorrent`；发布期源码构建并捆绑 dylib；极端情况切 `QbtWebuiEngine`（引擎抽象已隔离风险） |
+| libtorrent 在 macOS 无官方 PyPI 轮子 | 打包受阻 | ✅ 已验证 brew 路线：`brew install libtorrent-rasterbar`（绑定 python3.14，2026-09-08 实机通过）；打包期改为捆绑 dylib/绑定；极端情况切 `QbtWebuiEngine`（引擎抽象已隔离风险） |
 | Windows WebView2 `get_cookies()` 兼容性 | 登录向导降级 | M2 首项验证；兜底 Playwright 登录（V1 已有）与手动 Cookie |
 | libtorrent 2.x mmap 对磁盘占用/兼容的行为差异 | 文件预占空间 | 默认 `enable_memmap=false` 行为配置（1.2 语义），集数完成后再全量校验 |
 | BT 直连后部分 tracker/peer 不可达（所在网络必须经代理出网） | 下载/做种变慢或失败 | 设置页「跟随系统路由」一键回退（清空网卡绑定）；Mikan 会话流量不受影响 |

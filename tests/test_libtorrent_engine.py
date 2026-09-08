@@ -6,7 +6,13 @@ import unittest
 from server.engine.base import Engine, EngineError
 from server.engine.libtorrent_engine import LIBTORRENT_AVAILABLE, LibtorrentEngine
 
-TORRENT = b"d4:infod6:lengthi4096e4:name2:smee"
+# 合法的最小种子：libtorrent 要求 info 里必须有 piece length 与 pieces（20 字节哈希）
+_PIECES = bytes(range(20))
+TORRENT = (
+    b"d4:infod6:lengthi4096e4:name2:sm12:piece lengthi16384e6:pieces20:"
+    + _PIECES
+    + b"ee"
+)
 
 
 @unittest.skipUnless(LIBTORRENT_AVAILABLE, "本机未安装 libtorrent（brew/pip 安装后自动启用）")
@@ -37,6 +43,15 @@ class LibtorrentSmokeTest(unittest.TestCase):
                 sha2 = engine.add(TORRENT, paused=True, save_path=tmp)
                 self.assertEqual(sha1, sha2)
                 self.assertEqual(len(engine.list()), 1)
+            finally:
+                engine.stop()
+
+    def test_invalid_torrent_raises_engine_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = LibtorrentEngine(listen_port=0, save_path_default=tmp)
+            try:
+                with self.assertRaises(EngineError):
+                    engine.add(b"not-a-torrent", paused=True, save_path=tmp)
             finally:
                 engine.stop()
 
