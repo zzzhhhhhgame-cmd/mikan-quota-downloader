@@ -39,6 +39,23 @@ python -m mqd --once
 python -m mqd
 ```
 
+### 桌面端（V2，开发预览）
+
+```bash
+# 依赖（推荐 Python 3.10+；本机 3.9 装 pywebview 可能失败，可先用 --browser 模式）
+pip install -e ".[desktop]"
+
+# 桌面应用（默认弹窗；pywebview 不可用时自动退化为浏览器）
+python desktop/app.py --config config.yaml
+# 或强制浏览器模式
+python desktop/app.py --browser
+```
+
+应用内提供：双限额仪表盘与在线调整（自动回写 config.yaml）、任务控制、
+「登录 Mikan → 我已登录完成」两步会话向导（弹真浏览器过 Cloudflare 后自动收割会话）、
+手动 Cookie 导入兜底。引擎选择：`desktop.engine: auto`（装了 libtorrent 用内嵌引擎，
+否则自动连 qBt WebUI）。
+
 ## 每日限额怎么算
 
 **下载量**与**做种上传量**是两个独立的自然日限额，上限均可在设置页自定义（测试期均 1GB/日），

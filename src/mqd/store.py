@@ -1,6 +1,7 @@
 """本地状态库（SQLite）：RSS 条目去重 + 种子下载/上传字节按自然日记账。"""
 
 import sqlite3
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,7 +17,9 @@ class Usage:
 class Store:
     def __init__(self, path):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(path)
+        # API 线程池与调度器线程会并发访问，显式允许跨线程并用锁串行化
+        self._lock = threading.Lock()
+        self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS seen(
@@ -50,19 +53,26 @@ class Store:
     # ---- 去重 ----
 
     def seen(self, guid):
-        row = self.conn.execute("SELECT 1 FROM seen WHERE guid=?", (guid,)).fetchone()
-        return row is not None
+        with self._lock:
+            row = self.conn.execute("SELECT 1 FROM seen WHERE guid=?", (guid,)).fetchone()
+            return row is not None
 
     def mark_seen(self, guid, torrent_hash="", title="", added_at=0.0):
-        self.conn.execute(
-            "INSERT OR IGNORE INTO seen VALUES (?,?,?,?)", (guid, torrent_hash, title, added_at)
-        )
-        self.conn.commit()
+        with self._lock:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO seen VALUES (?,?,?,?)",
+                (guid, torrent_hash, title, added_at),
+            )
+            self.conn.commit()
 
     # ---- 记账 ----
 
     def attribute_all(self, torrents, day):
         """把种子的下载/上传增量归集到发生当日，返回当日用量 Usage。"""
+        with self._lock:
+            return self._attribute_all_locked(torrents, day)
+
+    def _attribute_all_locked(self, torrents, day):
         used = Usage(down=self._daily_get(day, "used"), up=self._daily_get(day, "up_used"))
         for t in torrents:
             downloaded = int(t.get("downloaded") or 0)

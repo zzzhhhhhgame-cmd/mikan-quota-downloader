@@ -9,7 +9,7 @@ from mqd.quota import DailyQuota, GiB
 from mqd.store import Store
 from mqd.torrents import infohash_from_bytes, torrent_size
 
-from server.engine.base import Engine, TaskState, TorrentState
+from server.engine.base import Engine, EngineError, TaskState, TorrentState
 from server.services.quota_guard import GATE_BPS, QuotaGuard
 
 
@@ -55,13 +55,16 @@ class FakeEngine(Engine):
         return sha
 
     def pause(self, sha):
+        self._require(sha)
         self._set(sha, state=TaskState.PAUSED)
 
     def resume(self, sha):
+        self._require(sha)
         self.resumed.append(sha)
         self._set(sha, state=TaskState.DOWNLOADING)
 
     def remove(self, sha, with_files=False):
+        self._require(sha)
         self.torrents = [t for t in self.torrents if t.sha != sha]
 
     def list(self):
@@ -75,6 +78,10 @@ class FakeEngine(Engine):
 
     def set_upload_limit(self, up_bps):
         self.upload_bps = up_bps
+
+    def _require(self, sha):
+        if all(t.sha != sha for t in self.torrents):
+            raise EngineError(f"任务不存在: {sha}")
 
     def _set(self, sha, **kwargs):
         for t in self.torrents:

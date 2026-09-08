@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>追番下载器 · mikan-quota-downloader</title>
+<style>
+:root{--bg:#101418;--card:#181e25;--line:#2a323d;--fg:#e6ebf2;--mut:#8b96a5;--acc:#5b8cff;--ok:#3fb96a;--warn:#e0a63f;--bad:#e05c5c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:24px}
+h1{font-size:18px;margin:0}
+h2{font-size:15px;margin:0 0 10px}
+.mut{color:var(--mut)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-top:16px}
+.bar{height:10px;background:#0c0f13;border-radius:6px;overflow:hidden;margin:6px 0 2px}
+.bar i{display:block;height:100%;background:var(--acc);width:0%;transition:width .4s}
+.bar.warn i{background:var(--warn)}
+.row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+table{width:100%;border-collapse:collapse;margin-top:6px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:13px}
+button{background:var(--acc);border:0;color:#fff;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px}
+button:hover{filter:brightness(1.1)}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
+button.small{padding:3px 8px;font-size:12px}
+input,textarea{background:#0c0f13;border:1px solid var(--line);color:var(--fg);border-radius:6px;padding:6px 8px;font-size:13px}
+input{width:110px}textarea{width:100%;min-height:60px;resize:vertical}
+.badge{padding:2px 8px;border-radius:999px;font-size:12px;background:#0c0f13;border:1px solid var(--line)}
+.badge.ok{color:var(--ok)}.badge.bad{color:var(--bad)}.badge.warn{color:var(--warn)}
+.hint{font-size:12px;color:var(--mut);margin-top:6px}
+#toast{position:fixed;right:16px;bottom:16px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 14px;display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>追番下载器</h1>
+  <div class="mut" id="engine-info">启动中…</div>
+
+  <div class="card">
+    <h2>今日限额 <span class="mut" style="font-weight:400;font-size:12px">（可在下方调整，测试期默认 1GB）</span></h2>
+    <div class="grid">
+      <div>
+        下载 <span class="mut" id="dl-text"></span>
+        <div class="bar" id="dl-bar"><i></i></div>
+      </div>
+      <div>
+        做种/上传 <span class="mut" id="up-text"></span>
+        <div class="bar" id="up-bar"><i></i></div>
+      </div>
+    </div>
+    <div class="row">
+      <label>下载上限 <input id="dl-limit" type="number" min="0" step="0.5"> GB</label>
+      <label>做种上限 <input id="up-limit" type="number" min="0" step="0.5"> GB</label>
+      <button onclick="saveLimits()">保存限额</button>
+      <span id="gate" class="badge"></span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>站点会话</h2>
+      <div id="session-status" class="mut">…</div>
+      <div class="row">
+        <button onclick="desktopLogin()">① 登录 Mikan（弹窗）</button>
+        <button onclick="harvest()">② 我已登录完成</button>
+      </div>
+      <div class="row"><button class="ghost" onclick="checkSession()">测试会话可用性</button>
+        <button class="ghost" onclick="clearSession()">清除会话</button></div>
+      <div class="hint">
+        桌面应用内走上面的向导（可过 Cloudflare）；浏览器模式下请手动复制浏览器 Cookie：
+      </div>
+      <div class="row" style="align-items:flex-start">
+        <textarea id="cookie-string" placeholder="cf_clearance=…; 其他=…（整段粘贴）"></textarea>
+      </div>
+      <div class="row"><button class="ghost" onclick="importCookies()">导入 Cookie（兜底）</button></div>
+      <div class="hint" id="session-check"></div>
+    </div>
+
+    <div class="card">
+      <h2>全局限速（速率层，与限额独立）</h2>
+      <div class="row">
+        <label>下载 <input id="rl-down" type="number" min="0" placeholder="不限"> KB/s</label>
+        <label>上传 <input id="rl-up" type="number" min="0" placeholder="不限"> KB/s</label>
+        <button onclick="saveRateLimit()">应用限速</button>
+      </div>
+      <div class="hint">0 或留空 = 不限速。做种限额触顶时，上传会被限额层临时压到闸门值。</div>
+      <h2 style="margin-top:16px">调度器</h2>
+      <div class="mut" id="sched-info">订阅轮询将在 M3 接入；当前每轮执行限额同步/队列放行。</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>下载任务</h2>
+    <table>
+      <thead><tr><th>名称</th><th>状态</th><th>进度</th><th>速度</th><th>大小</th><th>操作</th></tr></thead>
+      <tbody id="tasks"><tr><td colspan="6" class="mut">加载中…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+<div id="toast"></div>
+<script>
+const $ = id => document.getElementById(id);
+const GiB = 1024**3;
+const fmtGB = b => (b/GiB).toFixed(2);
+const fmtSpeed = b => b >= GiB/10 ? fmtGB(b)+' GB/s' : b >= 1024 ? (b/1024).toFixed(0)+' KB/s' : b+' B/s';
+const STATE_TXT = {downloading:'下载中', paused:'排队/暂停', checking:'校验中', completed:'已完成', failed:'失败'};
+const STATE_CLS = {downloading:'', paused:'warn', checking:'', completed:'ok', failed:'bad'};
+
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none', 3200); }
+async function api(path, opts){ const r = await fetch(path, opts); if(!r.ok){ let m=await r.text(); throw new Error(r.status+' '+m);} return r.status===200? r.json(): null; }
+
+async function poll(){
+  try{
+    const [health, quota] = await Promise.all([api('/api/health'), api('/api/quota')]);
+    $('engine-info').textContent = `引擎：${health.engine} ｜ 服务正常`;
+    $('dl-text').textContent = `${fmtGB(quota.used_download)} / ${fmtGB(quota.download_limit)} GB（在途 ${fmtGB(quota.active_remaining)} GB，剩余 ${fmtGB(quota.remaining)} GB）`;
+    $('up-text').textContent = `${fmtGB(quota.used_upload)} / ${quota.seed_limit? fmtGB(quota.seed_limit)+' GB':'不限'}`;
+    const dlPct = quota.download_limit? Math.min(100, quota.used_download/quota.download_limit*100):0;
+    const upPct = quota.seed_limit? Math.min(100, quota.used_upload/quota.seed_limit*100):0;
+    $('dl-bar').firstElementChild.style.width = dlPct+'%';
+    $('up-bar').firstElementChild.style.width = upPct+'%';
+    $('up-bar').className = 'bar' + (quota.seed_gate_closed?' warn':'');
+    const gate = $('gate');
+    gate.textContent = quota.seed_gate_closed? '上传闸门：关闭（明日恢复）':'上传闸门：开启';
+    gate.className = 'badge ' + (quota.seed_gate_closed?'bad':'ok');
+    if(document.activeElement.id!=='dl-limit' && $('dl-limit').value==='') $('dl-limit').value = (quota.download_limit/GiB).toFixed(1).replace(/\.0$/,'');
+    if(document.activeElement.id!=='up-limit' && $('up-limit').value==='') $('up-limit').value = quota.seed_limit? (quota.seed_limit/GiB).toFixed(1).replace(/\.0$/,''):'0';
+    const tasks = await api('/api/tasks');
+    $('tasks').innerHTML = tasks.length? tasks.map(t=>`
+      <tr><td>${t.name}</td>
+      <td><span class="badge ${STATE_CLS[t.state]||''}">${STATE_TXT[t.state]||t.state}</span></td>
+      <td>${t.size? (100*t.done/t.size).toFixed(1):0}%</td>
+      <td>${fmtSpeed(t.rate_down)}</td>
+      <td>${fmtGB(t.size)} GB</td>
+      <td>
+        <button class="small ghost" onclick="taskOp('${t.sha}','pause')">暂停</button>
+        <button class="small ghost" onclick="taskOp('${t.sha}','resume')">恢复</button>
+        <button class="small ghost" onclick="taskDel('${t.sha}')">删除</button>
+      </td></tr>`).join('') : '<tr><td colspan="6" class="mut">暂无任务（订阅轮询在 M3 接入，可先用 V1 脚本或手动添加）</td></tr>';
+  }catch(e){ $('engine-info').textContent = '服务异常：'+e.message; }
+}
+async function taskOp(sha, op){ try{ await api(`/api/tasks/${sha}/${op}`, {method:'POST'}); poll(); }catch(e){ toast(e.message);} }
+async function taskDel(sha){ try{ await api(`/api/tasks/${sha}`, {method:'DELETE'}); poll(); }catch(e){ toast(e.message);} }
+async function saveLimits(){
+  try{ await api('/api/quota/limits', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({download_limit_gb: parseFloat($('dl-limit').value)||0, seed_limit_gb: parseFloat($('up-limit').value)||0})});
+    toast('限额已保存'); poll(); }catch(e){ toast(e.message);}
+}
+async function saveRateLimit(){
+  try{ await api('/api/rate-limit', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({down_bps: (parseFloat($('rl-down').value)||0)*1024, up_bps: (parseFloat($('rl-up').value)||0)*1024})});
+    toast('限速已应用'); }catch(e){ toast(e.message);}
+}
+async function refreshSession(){
+  const s = await api('/api/session');
+  $('session-status').innerHTML = s.configured? '<span class="badge ok">已配置</span> <span class="mut">'+s.file+'</span>' : '<span class="badge bad">未配置</span> <span class="mut">请完成登录</span>';
+}
+async function desktopLogin(){
+  if(window.pywebview && window.pywebview.api){ await window.pywebview.api.open_login_window(); toast('已打开登录窗口，完成后回来点②'); }
+  else toast('当前是浏览器模式：请手动复制 Cookie 后用下方导入');
+}
+async function harvest(){
+  try{ const r = await api('/api/session/harvest', {method:'POST'});
+    toast(`会话已保存（${r.cookies} 条 Cookie）`); refreshSession(); }
+  catch(e){ toast('收割失败：'+ (window.pywebview? e.message : '请在桌面应用内使用，或手动导入 Cookie')); }
+}
+async function importCookies(){
+  try{ await api('/api/session/import', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({cookie_string: $('cookie-string').value})});
+    toast('Cookie 已导入'); $('cookie-string').value=''; refreshSession(); }catch(e){ toast(e.message);}
+}
+async function checkSession(){
+  try{ const s = await api('/api/session?check=1');
+    $('session-check').textContent = s.ok? '✓ 会话可用' : '✗ '+(s.reason||'不可用'); refreshSession(); }catch(e){ toast(e.message);}
+}
+async function clearSession(){ await api('/api/session', {method:'DELETE'}); refreshSession(); toast('会话已清除'); }
+refreshSession(); poll(); setInterval(poll, 2500);
+</script>
+</body>
+</html>
