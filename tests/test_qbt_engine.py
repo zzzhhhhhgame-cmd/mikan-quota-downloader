@@ -41,6 +41,8 @@ def make_mock_qbt(captured):
                 "/api/v2/torrents/stop",
                 "/api/v2/torrents/delete",
                 "/api/v2/transfer/setDownloadLimit",
+                "/api/v2/transfer/setUploadLimit",
+                "/api/v2/app/setPreferences",
             ):
                 self._send()
             else:
@@ -98,7 +100,7 @@ class QbtEngineTest(unittest.TestCase):
     def test_list_state_mapping(self):
         base = {
             "hash": "abc", "name": "ep01", "size": 100, "completed": 40,
-            "downloaded": 40, "dlspeed": 2048, "eta": 30, "seq_dl": True,
+            "downloaded": 40, "uploaded": 15, "dlspeed": 2048, "eta": 30, "seq_dl": True,
             "added_on": 1000, "save_path": "/downloads", "progress": 0.4,
         }
         for state, expected in [
@@ -117,6 +119,7 @@ class QbtEngineTest(unittest.TestCase):
         task = self.engine.list()[0]
         self.assertEqual(task.eta, 30)
         self.assertEqual(task.rate_down, 2048)
+        self.assertEqual(task.uploaded, 15)
         self.assertTrue(task.sequential)
         self.assertEqual(task.added_at, 1000)
 
@@ -142,11 +145,23 @@ class QbtEngineTest(unittest.TestCase):
         with self.assertRaises(EngineError):
             self.engine.remove("deadbeef")
 
-    def test_set_global_limit(self):
-        self.engine.set_global_limit(1024)
-        posts = [raw for path, raw in self.captured["requests"] if "setDownloadLimit" in path]
-        self.assertEqual(len(posts), 1)
-        self.assertIn(b"1024", posts[0])
+    def test_rate_limits(self):
+        self.engine.set_download_limit(1024)
+        self.engine.set_upload_limit(None)  # None → 0 = 不限速
+        posts = dict(self.captured["requests"])
+        down = [raw for path, raw in self.captured["requests"] if "setDownloadLimit" in path]
+        up = [raw for path, raw in self.captured["requests"] if "setUploadLimit" in path]
+        self.assertEqual(len(down), 1)
+        self.assertEqual(len(up), 1)
+        self.assertIn(b"1024", down[0])
+        self.assertIn(b"0", up[0])
+
+    def test_bind_ip_applied_on_start(self):
+        engine = QbtWebuiEngine(self.url, "admin", "pw", bind_ip="192.168.1.10")
+        engine.start()
+        prefs = [raw for path, raw in self.captured["requests"] if "setPreferences" in path]
+        self.assertEqual(len(prefs), 1)
+        self.assertIn(b"192.168.1.10", prefs[0])
 
 
 if __name__ == "__main__":

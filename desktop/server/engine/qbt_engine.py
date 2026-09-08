@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import json
+
 import requests
 
 from mqd.torrents import infohash_from_bytes
@@ -19,11 +21,13 @@ _ETA_UNKNOWN = 8640000  # qBt 的 eta 未知哨兵值
 
 
 class QbtWebuiEngine(Engine):
-    def __init__(self, base_url: str, username: str = "admin", password: str = "", category: str = "bangumi"):
+    def __init__(self, base_url: str, username: str = "admin", password: str = "", category: str = "bangumi", bind_ip: str | None = None):
         self.base = base_url.rstrip("/")
         self.category = category
         self._username = username
         self._password = password
+        # bind_ip：BT 直连（绕过 VPN），映射到 qBt 的网络接口绑定；None=跟随系统路由
+        self._bind_ip = bind_ip
         self.session = requests.Session()
 
     # ---- 生命周期 ----
@@ -37,6 +41,13 @@ class QbtWebuiEngine(Engine):
         resp.raise_for_status()
         if resp.text.strip() != "Ok.":
             raise EngineError(f"qBittorrent 登录失败: {resp.text.strip()}")
+        if self._bind_ip:
+            resp = self.session.post(
+                f"{self.base}/api/v2/app/setPreferences",
+                data={"json": json.dumps({"current_interface_address": self._bind_ip})},
+                timeout=10,
+            )
+            resp.raise_for_status()
 
     def stop(self):
         pass  # qBt 是外部进程，生命周期由它自己管理
@@ -106,6 +117,7 @@ class QbtWebuiEngine(Engine):
                     size=int(t.get("size", 0)),
                     done=int(t.get("completed", 0)),
                     downloaded=int(t.get("downloaded", 0)),
+                    uploaded=int(t.get("uploaded", 0)),
                     rate_down=int(t.get("dlspeed", 0)),
                     eta=eta if 0 <= eta < _ETA_UNKNOWN else None,
                     sequential=bool(t.get("seq_dl", False)),
@@ -117,11 +129,15 @@ class QbtWebuiEngine(Engine):
         tasks.sort(key=lambda t: t.added_at)
         return tasks
 
-    def set_global_limit(self, down_bps: int | None):
+    def set_download_limit(self, down_bps: int | None):
+        self._post_rate("/api/v2/transfer/setDownloadLimit", down_bps)
+
+    def set_upload_limit(self, up_bps: int | None):
+        self._post_rate("/api/v2/transfer/setUploadLimit", up_bps)
+
+    def _post_rate(self, path: str, bps: int | None):
         resp = self.session.post(
-            f"{self.base}/api/v2/transfer/setDownloadLimit",
-            data={"limit": str(int(down_bps or 0))},  # 0=不限速
-            timeout=15,
+            f"{self.base}{path}", data={"limit": str(int(bps or 0))}, timeout=15  # 0=不限速
         )
         resp.raise_for_status()
 

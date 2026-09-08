@@ -10,7 +10,7 @@ from mqd.store import Store
 from mqd.torrents import infohash_from_bytes, torrent_size
 
 from server.engine.base import Engine, TaskState, TorrentState
-from server.services.quota_guard import QuotaGuard
+from server.services.quota_guard import GATE_BPS, QuotaGuard
 
 
 def make_torrent(length: int, tag: bytes = b"a1") -> bytes:
@@ -24,6 +24,8 @@ class FakeEngine(Engine):
     def __init__(self):
         self.torrents = []
         self.resumed = []
+        self.download_bps = None
+        self.upload_bps = None
         self._seq = 0
 
     def start(self):
@@ -68,6 +70,12 @@ class FakeEngine(Engine):
     def set_global_limit(self, down_bps):
         pass
 
+    def set_download_limit(self, down_bps):
+        self.download_bps = down_bps
+
+    def set_upload_limit(self, up_bps):
+        self.upload_bps = up_bps
+
     def _set(self, sha, **kwargs):
         for t in self.torrents:
             if t.sha == sha:
@@ -81,7 +89,13 @@ class QuotaGuardTest(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.store = Store(f"{tmp.name}/state.db")
         self.engine = FakeEngine()
-        self.guard = QuotaGuard(self.engine, self.store, DailyQuota(100))  # 上限 100 字节
+        # 测试期双限额均为 1GB 的等比缩小版：下载 100 字节、做种 100 字节
+        self.guard = QuotaGuard(
+            self.engine,
+            self.store,
+            download_quota=DailyQuota(100),
+            seed_limit_bytes=100,
+        )
 
     def test_admit_starts_within_budget(self):
         decision = self.guard.admit(make_torrent(60, b"a1"), save_path="/x")
@@ -124,7 +138,7 @@ class QuotaGuardTest(unittest.TestCase):
         t1, t2 = self.engine.torrents
         t1.downloaded, t1.done, t1.state = 90, 90, TaskState.COMPLETED
         # 旧的一天先入账这 90 字节（真实场景里字节在当天就被轮询归集）
-        self.assertEqual(self.guard.snapshot().used_today, 90)
+        self.assertEqual(self.guard.snapshot().used_download, 90)
 
         with mock.patch("server.services.quota_guard.time") as fake_time:
             fake_time.strftime.return_value = "2099-01-01"  # 新的一天
@@ -134,14 +148,63 @@ class QuotaGuardTest(unittest.TestCase):
 
     def test_snapshot_numbers(self):
         snap = self.guard.snapshot()
-        self.assertEqual(snap.limit, 100)
-        self.assertEqual(snap.used_today, 0)
+        self.assertEqual(snap.download_limit, 100)
+        self.assertEqual(snap.used_download, 0)
+        self.assertEqual(snap.used_upload, 0)
         self.assertEqual(snap.remaining, 100)
+        self.assertFalse(snap.seed_gate_closed)
 
         self.guard.admit(make_torrent(40, b"a1"), save_path="/x")
         snap = self.guard.snapshot()
         self.assertEqual(snap.active_remaining, 40)  # 未完成，按全量计
         self.assertEqual(snap.remaining, 60)
+
+    def test_seed_gate_closes_when_quota_reached(self):
+        self.guard.admit(make_torrent(60, b"a1"), save_path="/x")
+        t1 = self.engine.torrents[0]
+        t1.uploaded = 100  # 触达做种上限 100 字节
+        self.assertTrue(self.guard.apply_seed_policy())
+        self.assertEqual(self.engine.upload_bps, GATE_BPS)
+
+        # 次日重置 → 闸门放开，还原用户上传限速设定（此处为不限）
+        with mock.patch("server.services.quota_guard.time") as fake_time:
+            fake_time.strftime.return_value = "2099-01-01"
+            self.assertFalse(self.guard.apply_seed_policy())
+        self.assertIsNone(self.engine.upload_bps)
+
+    def test_seed_gate_restores_user_upload_rate(self):
+        guard = QuotaGuard(
+            self.engine,
+            self.store,
+            download_quota=DailyQuota(100),
+            seed_limit_bytes=100,
+            user_upload_bps=512,
+        )
+        self.engine.torrents.append(
+            TorrentState(sha="x", name="x", state=TaskState.DOWNLOADING, uploaded=999)
+        )
+        self.assertTrue(guard.apply_seed_policy())
+        self.assertEqual(self.engine.upload_bps, GATE_BPS)
+
+        # 次日（上传账目重置）→ 闸门放开，还原用户上传限速 512
+        with mock.patch("server.services.quota_guard.time") as fake_time:
+            fake_time.strftime.return_value = "2099-01-01"
+            self.assertFalse(guard.apply_seed_policy())
+        self.assertEqual(self.engine.upload_bps, 512)
+
+    def test_seed_limit_disabled_never_closes(self):
+        self.guard = QuotaGuard(self.engine, self.store, download_quota=DailyQuota(100))
+        self.engine.torrents.append(
+            TorrentState(sha="x", name="x", state=TaskState.DOWNLOADING, uploaded=10**9)
+        )
+        self.assertFalse(self.guard.apply_seed_policy())
+        self.assertIsNone(self.engine.upload_bps)
+
+    def test_sync_returns_drain_and_gate(self):
+        self.guard.admit(make_torrent(60, b"a1"), save_path="/x")
+        resumed, gate_closed = self.guard.sync()
+        self.assertEqual(resumed, [])
+        self.assertFalse(gate_closed)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,16 @@
-"""本地状态库（SQLite）：RSS 条目去重 + 种子下载字节按自然日记账。"""
+"""本地状态库（SQLite）：RSS 条目去重 + 种子下载/上传字节按自然日记账。"""
 
 import sqlite3
+from dataclasses import dataclass
 from pathlib import Path
+
+
+@dataclass
+class Usage:
+    """某自然日的累计用量（字节）。"""
+
+    down: int = 0
+    up: int = 0
 
 
 class Store:
@@ -19,12 +28,24 @@ class Store:
             CREATE TABLE IF NOT EXISTS ledger(
                 hash TEXT PRIMARY KEY,
                 size INTEGER,
-                downloaded INTEGER
+                downloaded INTEGER,
+                uploaded INTEGER
             );
-            CREATE TABLE IF NOT EXISTS daily(day TEXT PRIMARY KEY, used INTEGER);
+            CREATE TABLE IF NOT EXISTS daily(day TEXT PRIMARY KEY, used INTEGER, up_used INTEGER);
             """
         )
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self):
+        """旧版本库没有 uploaded/up_used 列，自动补齐（V1 数据无损升级）。"""
+        self._ensure_column("ledger", "uploaded", "INTEGER DEFAULT 0")
+        self._ensure_column("daily", "up_used", "INTEGER DEFAULT 0")
+
+    def _ensure_column(self, table, column, ddl):
+        columns = {row[1] for row in self.conn.execute(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
     # ---- 去重 ----
 
@@ -41,42 +62,45 @@ class Store:
     # ---- 记账 ----
 
     def attribute_all(self, torrents, day):
-        """把种子的下载增量归集到发生当日，返回当日累计用量。
-
-        首次见到的种子若已带有下载量（如换库重跑），该部分计入今天。
-        """
-        used = self._daily_get(day)
+        """把种子的下载/上传增量归集到发生当日，返回当日用量 Usage。"""
+        used = Usage(down=self._daily_get(day, "used"), up=self._daily_get(day, "up_used"))
         for t in torrents:
             downloaded = int(t.get("downloaded") or 0)
+            uploaded = int(t.get("uploaded") or 0)
             size = int(t.get("size") or 0)
             row = self.conn.execute(
-                "SELECT downloaded FROM ledger WHERE hash=?", (t["hash"],)
+                "SELECT downloaded, uploaded FROM ledger WHERE hash=?", (t["hash"],)
             ).fetchone()
             if row is None:
-                if downloaded > 0:
-                    self._daily_add(day, downloaded)
-                    used += downloaded
+                down_delta, up_delta = downloaded, uploaded
                 self.conn.execute(
-                    "INSERT INTO ledger VALUES (?,?,?)", (t["hash"], size, downloaded)
+                    "INSERT INTO ledger VALUES (?,?,?,?)", (t["hash"], size, downloaded, uploaded)
                 )
-            elif downloaded > row[0]:
-                delta = downloaded - row[0]
-                self._daily_add(day, delta)
-                used += delta
+            else:
+                down_delta = max(0, downloaded - row[0])
+                up_delta = max(0, uploaded - row[1])
                 self.conn.execute(
-                    "UPDATE ledger SET downloaded=?, size=? WHERE hash=?",
-                    (downloaded, size, t["hash"]),
+                    "UPDATE ledger SET downloaded=?, uploaded=?, size=? WHERE hash=?",
+                    (downloaded, uploaded, size, t["hash"]),
                 )
+            if down_delta:
+                self._daily_add(day, "used", down_delta)
+                used.down += down_delta
+            if up_delta:
+                self._daily_add(day, "up_used", up_delta)
+                used.up += up_delta
         self.conn.commit()
         return used
 
-    def _daily_get(self, day):
-        row = self.conn.execute("SELECT used FROM daily WHERE day=?", (day,)).fetchone()
-        return row[0] if row else 0
+    def _daily_get(self, day, column):
+        row = self.conn.execute(
+            f"SELECT {column} FROM daily WHERE day=?", (day,)
+        ).fetchone()
+        return row[0] if row and row[0] is not None else 0
 
-    def _daily_add(self, day, amount):
+    def _daily_add(self, day, column, amount):
         self.conn.execute(
-            "INSERT INTO daily(day, used) VALUES(?, ?) "
-            "ON CONFLICT(day) DO UPDATE SET used = used + excluded.used",
+            f"INSERT INTO daily(day, {column}) VALUES(?, ?) "
+            f"ON CONFLICT(day) DO UPDATE SET {column} = COALESCE({column}, 0) + excluded.{column}",
             (day, amount),
         )

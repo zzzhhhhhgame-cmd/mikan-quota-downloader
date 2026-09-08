@@ -1,3 +1,4 @@
+import sqlite3
 import tempfile
 import unittest
 
@@ -31,19 +32,52 @@ class LedgerTest(unittest.TestCase):
     def test_delta_attribution(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(f"{tmp}/state.db")
-            used = store.attribute_all([{"hash": "a", "size": 100, "downloaded": 30}], DAY)
-            self.assertEqual(used, 30)
-            used = store.attribute_all([{"hash": "a", "size": 100, "downloaded": 80}], DAY)
-            self.assertEqual(used, 80)
-            used = store.attribute_all([{"hash": "a", "size": 100, "downloaded": 80}], DAY)
-            self.assertEqual(used, 80)  # 无增量不重复计
+            usage = store.attribute_all([{"hash": "a", "size": 100, "downloaded": 30}], DAY)
+            self.assertEqual(usage.down, 30)
+            usage = store.attribute_all([{"hash": "a", "size": 100, "downloaded": 80}], DAY)
+            self.assertEqual(usage.down, 80)
+            usage = store.attribute_all([{"hash": "a", "size": 100, "downloaded": 80}], DAY)
+            self.assertEqual(usage.down, 80)  # 无增量不重复计
+
+    def test_upload_attribution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(f"{tmp}/state.db")
+            usage = store.attribute_all(
+                [{"hash": "a", "size": 100, "downloaded": 10, "uploaded": 5}], DAY
+            )
+            self.assertEqual((usage.down, usage.up), (10, 5))
+            usage = store.attribute_all(
+                [{"hash": "a", "size": 100, "downloaded": 80, "uploaded": 12}], DAY
+            )
+            self.assertEqual((usage.down, usage.up), (80, 12))
 
     def test_days_are_independent(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(f"{tmp}/state.db")
             store.attribute_all([{"hash": "a", "size": 100, "downloaded": 50}], DAY)
-            used_next = store.attribute_all([{"hash": "a", "size": 100, "downloaded": 90}], "2026-09-08")
-            self.assertEqual(used_next, 40)  # 新的一天只记新发生的字节
+            usage = store.attribute_all([{"hash": "a", "size": 100, "downloaded": 90}], "2026-09-08")
+            self.assertEqual(usage.down, 40)  # 新的一天只记新发生的字节
+
+    def test_migrates_legacy_db(self):
+        """V1 早期库没有 uploaded/up_used 列，打开时应自动补列。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = f"{tmp}/legacy.db"
+            conn = sqlite3.connect(path)
+            conn.executescript(
+                """
+                CREATE TABLE seen(guid TEXT PRIMARY KEY, torrent_hash TEXT, title TEXT, added_at REAL);
+                CREATE TABLE ledger(hash TEXT PRIMARY KEY, size INTEGER, downloaded INTEGER);
+                CREATE TABLE daily(day TEXT PRIMARY KEY, used INTEGER);
+                INSERT INTO ledger VALUES ('old', 100, 50);
+                """
+            )
+            conn.commit()
+            conn.close()
+            store = Store(path)
+            usage = store.attribute_all(
+                [{"hash": "old", "size": 100, "downloaded": 60, "uploaded": 7}], DAY
+            )
+            self.assertEqual((usage.down, usage.up), (10, 7))  # 旧 downloaded=50 被继承，只记增量
 
 
 class TorrentSizeTest(unittest.TestCase):

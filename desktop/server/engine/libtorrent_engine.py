@@ -31,7 +31,7 @@ _ALERT_INTERVAL_S = 0.5
 
 
 class LibtorrentEngine(Engine):
-    def __init__(self, listen_port: int = 6881, save_path_default: str = "."):
+    def __init__(self, listen_port: int = 6881, save_path_default: str = ".", bind_ip: str | None = None):
         if not LIBTORRENT_AVAILABLE:
             raise EngineError(
                 "libtorrent 未安装：Windows/Linux 用 pip install libtorrent；"
@@ -39,16 +39,19 @@ class LibtorrentEngine(Engine):
                 "或将引擎切换为 QbtWebuiEngine"
             )
         self._default_save_path = save_path_default
-        self._session = lt.session(
-            {
-                "listen_interfaces": f"0.0.0.0:{listen_port}",
-                "alert_mask": lt.alert.category_t.status_notification
-                | lt.alert.category_t.error_notification,
-                "active_downloads": 8,
-                "active_seeds": 8,
-                "active_limit": 16,
-            }
-        )
+        # bind_ip：BT 直连（绕过 VPN）——监听与出站都绑定物理网卡；None=跟随系统路由。
+        # TUN/全隧 VPN 接管默认路由时，绑定物理网卡即可绕开虚拟网卡。
+        settings = {
+            "listen_interfaces": f"{bind_ip or '0.0.0.0'}:{listen_port}",
+            "alert_mask": lt.alert.category_t.status_notification
+            | lt.alert.category_t.error_notification,
+            "active_downloads": 8,
+            "active_seeds": 8,
+            "active_limit": 16,
+        }
+        if bind_ip:
+            settings["outgoing_interfaces"] = bind_ip
+        self._session = lt.session(settings)
         self._lock = threading.Lock()
         self._states: dict[str, TorrentState] = {}
         self._errors: dict[str, str] = {}
@@ -126,8 +129,11 @@ class LibtorrentEngine(Engine):
         with self._lock:
             return sorted(self._states.values(), key=lambda t: t.order)
 
-    def set_global_limit(self, down_bps: int | None):
+    def set_download_limit(self, down_bps: int | None):
         self._session.apply_settings({"download_rate_limit": int(down_bps or 0)})  # 0=不限速
+
+    def set_upload_limit(self, up_bps: int | None):
+        self._session.apply_settings({"upload_rate_limit": int(up_bps or 0)})
 
     # ---- 内部 ----
 
@@ -177,6 +183,7 @@ class LibtorrentEngine(Engine):
             size = int(st.total_wanted)
             done = int(st.total_done)
             downloaded = int(st.all_time_download)
+            uploaded = int(st.all_time_upload)
             rate = int(st.download_payload_rate)
             error = self._errors.pop(sha, None)
 
@@ -203,6 +210,7 @@ class LibtorrentEngine(Engine):
                 size=size or (prev.size if prev else 0),
                 done=done,
                 downloaded=downloaded,
+                uploaded=uploaded,
                 rate_down=rate,
                 eta=max(0, size - done) // rate if state == TaskState.DOWNLOADING and rate > 0 else None,
                 sequential=sequential,

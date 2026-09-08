@@ -20,7 +20,10 @@ qbittorrent:
   ratio_limit: null  # 做种分享率上限，例如 1.0；null 不限制
 
 quota:
-  daily_limit_gb: 30
+  # 下载日限额——当前为测试值 1GB，正式使用请调大（如 30）
+  daily_limit_gb: 1
+  # 做种/上传日限额（V2 桌面端生效；测试值 1GB；0 或 null 表示不限）
+  seed_limit_gb: 1
 
 monitor:
   interval_minutes: 20

@@ -27,7 +27,8 @@ class TorrentState:
     state: TaskState
     size: int = 0  # 需要下载的总字节
     done: int = 0  # 已完成字节
-    downloaded: int = 0  # 累计实际下载字节（限额记账用，单调递增）
+    downloaded: int = 0  # 累计实际下载字节（下载限额记账用，单调递增）
+    uploaded: int = 0  # 累计实际上传/做种字节（做种限额记账用，单调递增）
     rate_down: int = 0  # 下载速度 B/s
     eta: int | None = None  # 预计剩余秒数；None=不可估
     sequential: bool = False  # 顺序下载（边下边看）
@@ -73,5 +74,12 @@ class Engine(ABC):
         """当前全部任务的状态快照。"""
 
     @abstractmethod
-    def set_global_limit(self, down_bps: int | None):
+    def set_download_limit(self, down_bps: int | None):
         """全局下载限速（B/s）；None 或 0 表示不限速。"""
+
+    @abstractmethod
+    def set_upload_limit(self, up_bps: int | None):
+        """全局上传限速（B/s）；None 或 0 表示不限速。
+
+        做种限额的「上传闸门」由 QuotaGuard 调用本方法实现（闸门值 1 B/s ≈ 停止上传）。
+        """

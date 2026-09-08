@@ -38,7 +38,8 @@ def run_once(cfg):
 
     # 1) 归集今日下载量，并计算在途种子的剩余需求
     torrents = qbt.torrents(category=category)
-    used_today = store.attribute_all(torrents, _today())
+    usage = store.attribute_all(torrents, _today())
+    used_today = usage.down
     active = [t for t in torrents if not QbtClient.is_done(t)]
     active_remaining = sum(QbtClient.need_bytes(t) for t in active)
 
@@ -59,7 +60,12 @@ def run_once(cfg):
     episodes = mikan.fetch_episodes()
     fresh = [ep for ep in episodes if not store.seen(ep.guid)]
     if not fresh:
-        log.info("订阅无更新（今日已用 %.2f / %.2f GiB）", used_today / GiB, quota.limit / GiB)
+        log.info(
+            "订阅无更新（今日下载 %.2f / %.2f GiB，上传 %.2f GiB）",
+            used_today / GiB,
+            quota.limit / GiB,
+            usage.up / GiB,
+        )
         return
 
     for ep in fresh:
