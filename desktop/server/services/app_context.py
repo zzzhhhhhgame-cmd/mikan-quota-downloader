@@ -10,6 +10,7 @@ from mqd.store import Store
 from ..engine.base import Engine, EngineError
 from ..engine.libtorrent_engine import LIBTORRENT_AVAILABLE, LibtorrentEngine
 from ..engine.qbt_engine import QbtWebuiEngine
+from .config_store import ConfigStore
 from .quota_guard import QuotaGuard
 from .scheduler import SyncScheduler
 from .session_manager import SessionManager
@@ -23,6 +24,8 @@ class AppContext:
     guard: QuotaGuard
     sessions: SessionManager
     scheduler: SyncScheduler | None = None
+    config_store: ConfigStore | None = None  # 指向实际加载的 config.yaml；None=不回写
+    default_save_path: str = ""  # 全局默认下载目录（空=未设置）
     # app.py 注入：桌面 webview 会话收割（HTTP 端点代理调用；浏览器环境为 None）
     harvest_callback: object | None = field(default=None)
 
@@ -40,7 +43,7 @@ class AppContext:
             pass
 
 
-def build_context(cfg: dict) -> AppContext:
+def build_context(cfg: dict, config_path: str | None = None) -> AppContext:
     """按配置装配真实依赖（测试直接手工构造 AppContext）。"""
     desktop_cfg = cfg.get("desktop", {})
     engine = _build_engine(cfg)
@@ -60,7 +63,14 @@ def build_context(cfg: dict) -> AppContext:
     )
     scheduler = SyncScheduler(guard, int(cfg["monitor"].get("interval_minutes", 20)))
     return AppContext(
-        cfg=cfg, engine=engine, store=store, guard=guard, sessions=sessions, scheduler=scheduler
+        cfg=cfg,
+        engine=engine,
+        store=store,
+        guard=guard,
+        sessions=sessions,
+        scheduler=scheduler,
+        config_store=ConfigStore(config_path),
+        default_save_path=str(desktop_cfg.get("save_path") or ""),
     )
 
 

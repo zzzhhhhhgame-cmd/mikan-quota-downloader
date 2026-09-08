@@ -6,6 +6,8 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, HTTPException, Request
 
+from mqd.torrents import infohash_from_bytes
+
 from server.engine.base import EngineError
 
 router = APIRouter(prefix="/api")
@@ -25,6 +27,34 @@ def list_tasks(request: Request):
     except Exception as exc:
         raise HTTPException(503, f"引擎不可达：{exc}")
     return [_serialize(t) for t in tasks]
+
+
+@router.post("/tasks/add")
+async def add_task(request: Request, save_path: str = "", sequential: bool = False):
+    """手动添加种子（请求体 = .torrent 原始字节），同样受每日限额约束。
+
+    目录优先级：请求参数 save_path > 应用默认下载目录；两者都为空时明确报错，
+    不放任任务落到随机目录。
+    """
+    ctx = request.app.state.ctx
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(422, "请求体为空：请上传 .torrent 文件内容")
+    target = save_path.strip() or ctx.default_save_path
+    if not target:
+        raise HTTPException(422, "未指定下载目录：请先在设置中保存默认下载目录，或随请求指定 save_path")
+    try:
+        decision = ctx.guard.admit(raw, save_path=target, sequential=sequential)
+    except ValueError:
+        raise HTTPException(422, "不是有效的 .torrent 文件")
+    except EngineError as exc:
+        raise HTTPException(503, f"引擎添加失败：{exc}")
+    return {
+        "sha": infohash_from_bytes(raw),
+        "started": decision.start,
+        "reason": decision.reason,
+        "save_path": target,
+    }
 
 
 @router.post("/tasks/{sha}/pause")

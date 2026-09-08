@@ -90,6 +90,25 @@ input{width:110px}textarea{width:100%;min-height:60px;resize:vertical}
     </div>
   </div>
 
+  <div class="grid">
+    <div class="card">
+      <h2>下载目录</h2>
+      <div class="row"><input id="save-path" placeholder="绝对路径，如 /Movies/Bangumi 或 D:\Bangumi" style="width:100%"></div>
+      <div class="row"><button onclick="savePath()">保存默认下载目录</button><span class="mut" id="save-path-now"></span></div>
+      <div class="hint">目录不存在会自动创建；改动立即生效并回写 config.yaml，但只影响之后新增的任务（在途任务保持原目录）。</div>
+    </div>
+    <div class="card">
+      <h2>手动添加种子</h2>
+      <div class="row"><input type="file" id="torrent-file" accept=".torrent" style="width:100%"></div>
+      <div class="row"><input id="torrent-path" placeholder="本次下载目录（留空 = 用默认目录）" style="width:100%"></div>
+      <div class="row">
+        <label><input type="checkbox" id="torrent-seq" style="width:auto"> 顺序下载（边下边看）</label>
+        <button onclick="addTorrent()">添加任务</button>
+      </div>
+      <div class="hint">手动添加同样受每日下载限额约束：预算装得下立即开始，否则自动进入等待队列。</div>
+    </div>
+  </div>
+
   <div class="card">
     <h2>下载任务</h2>
     <table>
@@ -175,7 +194,35 @@ async function checkSession(){
     $('session-check').textContent = s.ok? '✓ 会话可用' : '✗ '+(s.reason||'不可用'); refreshSession(); }catch(e){ toast(e.message);}
 }
 async function clearSession(){ await api('/api/session', {method:'DELETE'}); refreshSession(); toast('会话已清除'); }
-refreshSession(); poll(); setInterval(poll, 2500);
+async function loadSettings(){
+  try{
+    const s = await api('/api/settings');
+    $('save-path-now').textContent = s.save_path ? '当前：'+s.save_path : '尚未设置默认目录';
+    if(document.activeElement.id !== 'save-path') $('save-path').value = s.save_path || '';
+  }catch(e){ $('save-path-now').textContent = '设置读取失败'; }
+}
+async function savePath(){
+  try{
+    await api('/api/settings/save-path', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({save_path: $('save-path').value.trim()})});
+    toast('默认下载目录已保存'); loadSettings();
+  }catch(e){ toast(e.message); }
+}
+async function addTorrent(){
+  const file = $('torrent-file').files[0];
+  if(!file){ toast('请先选择 .torrent 文件'); return; }
+  const params = new URLSearchParams();
+  if($('torrent-path').value.trim()) params.set('save_path', $('torrent-path').value.trim());
+  if($('torrent-seq').checked) params.set('sequential', 'true');
+  try{
+    const buf = await file.arrayBuffer();
+    const r = await api('/api/tasks/add' + (params.toString() ? '?'+params : ''), {
+      method:'POST', body: buf, headers:{'Content-Type':'application/x-bittorrent'}});
+    toast(r.started ? '已开始下载：'+r.save_path : '今日限额不足，已进入等待队列');
+    $('torrent-file').value = ''; poll();
+  }catch(e){ toast(e.message); }
+}
+refreshSession(); loadSettings(); poll(); setInterval(poll, 2500);
 </script>
 </body>
 </html>

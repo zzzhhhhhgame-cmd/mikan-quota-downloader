@@ -14,8 +14,9 @@ BT 流量绑定物理网卡**直连不经过 VPN**。macOS / Windows 双端可�
 ## 状态
 
 🚧 V1 脚本与 V2 桌面端并行推进：V1 的限额/记账/qBt 客户端可用；V2 已完成引擎抽象
-（内嵌 libtorrent 主线 + qBt 后备）、**下载/做种双限额守门**（测试期 1GB/1GB）与
-**BT 网卡直连**支持，单测全绿；站点会话与订阅链路待真机联调。
+（内嵌 libtorrent 主线 + qBt 后备）、**下载/做种双限额守门**（测试期 1GB/1GB）、
+**BT 网卡直连**、**指定下载地址**（全局默认 + 任务级覆盖）、桌面壳与登录向导，
+63 项单测全绿；订阅追更闭环（M3）待做。
 
 ## 快速开始
 
@@ -42,19 +43,28 @@ python -m mqd
 ### 桌面端（V2，开发预览）
 
 ```bash
-# 依赖（推荐 Python 3.10+；本机 3.9 装 pywebview 可能失败，可先用 --browser 模式）
-pip install -e ".[desktop]"
+# 依赖（需 Python 3.10+，本仓库已验证 3.14）
+python3 -m venv .venv
+.venv/bin/pip install -e ".[desktop]"
 
 # 桌面应用（默认弹窗；pywebview 不可用时自动退化为浏览器）
-python desktop/app.py --config config.yaml
+.venv/bin/python desktop/app.py --config config.yaml
 # 或强制浏览器模式
-python desktop/app.py --browser
+.venv/bin/python desktop/app.py --browser
 ```
 
-应用内提供：双限额仪表盘与在线调整（自动回写 config.yaml）、任务控制、
-「登录 Mikan → 我已登录完成」两步会话向导（弹真浏览器过 Cloudflare 后自动收割会话）、
-手动 Cookie 导入兜底。引擎选择：`desktop.engine: auto`（装了 libtorrent 用内嵌引擎，
-否则自动连 qBt WebUI）。
+应用内提供：
+
+- **双限额仪表盘**与在线调整（自动回写 config.yaml）；
+- **指定下载地址**：设置页保存全局默认下载目录（绝对路径校验、自动建目录、持久化），
+  手动添加种子时可按次覆盖；改动只影响之后新增的任务；
+- **手动添加种子**：选 `.torrent` 文件 → 可选本次目录与「边下边看」→ 添加；
+  同样受每日下载限额约束（装不下自动进等待队列）；
+- **任务控制**：暂停/恢复/删除、限速；
+- **会话向导**：「登录 Mikan → 我已登录完成」两步（弹真浏览器过 Cloudflare 后自动收割
+  会话），另有手动 Cookie 导入兜底；
+- 引擎选择 `desktop.engine: auto`（装了 libtorrent 用内嵌引擎，否则自动连 qBt WebUI）；
+  BT 直连绑定网卡用 `desktop.bind_ip`。
 
 ## 每日限额怎么算
 

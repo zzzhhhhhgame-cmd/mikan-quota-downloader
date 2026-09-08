@@ -28,3 +28,13 @@ quota:
 monitor:
   interval_minutes: 20
   db_file: data/state.db
+
+desktop:
+  # 引擎选择：auto（装了 libtorrent 用内嵌引擎，否则连 qBt WebUI）/ libtorrent / qbittorrent
+  engine: auto
+  # 默认下载目录（绝对路径；留空则手动添加任务时必须逐次指定）
+  save_path: ""
+  # BT 直连（绕过 VPN）：绑定物理网卡 IP；留空=跟随系统路由
+  bind_ip: ""
+  # BT 监听端口（仅 libtorrent 引擎）
+  bt_port: 6881

@@ -109,7 +109,7 @@ def main():
     from server.main import create_app
     from server.services.app_context import build_context
 
-    ctx = build_context(load_config(args.config))
+    ctx = build_context(load_config(args.config), config_path=args.config)
     app = create_app(ctx)
     port = _free_port()
     _start_server(app, port)

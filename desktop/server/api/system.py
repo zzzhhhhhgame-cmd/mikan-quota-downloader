@@ -32,7 +32,7 @@ def quota_snapshot(request: Request):
 
 @router.post("/quota/limits")
 def update_limits(request: Request, payload: dict):
-    """运行时调整双限额上限（GB），并回写 config.yaml 使其重启后仍生效。"""
+    """运行时调整双限额上限（GB），并回写实际加载的 config.yaml。"""
     ctx = request.app.state.ctx
     download_gb = payload.get("download_limit_gb")
     seed_gb = payload.get("seed_limit_gb")
@@ -43,26 +43,11 @@ def update_limits(request: Request, payload: dict):
             ctx.guard.seed_limit = int(float(seed_gb) * GiB)
     except (TypeError, ValueError):
         raise HTTPException(422, "限额必须是非负数字（GB）")
-    _persist_limits(ctx.cfg, download_gb, seed_gb)
-    return quota_snapshot(request)
-
-
-def _persist_limits(cfg: dict, download_gb, seed_gb):
-    """把新限额写回 config.yaml（文件不存在则跳过——测试环境无此文件）。"""
-    from pathlib import Path
-
-    import yaml
-
-    path = Path("config.yaml")
-    if not path.exists():
-        return
-    try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except Exception:
-        return
-    quota = data.setdefault("quota", {})
+    values = {}
     if download_gb is not None:
-        quota["daily_limit_gb"] = download_gb
+        values["daily_limit_gb"] = download_gb
     if seed_gb is not None:
-        quota["seed_limit_gb"] = seed_gb
-    path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        values["seed_limit_gb"] = seed_gb
+    if ctx.config_store is not None and values:
+        ctx.config_store.update("quota", values)
+    return quota_snapshot(request)
