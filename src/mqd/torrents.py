@@ -1,4 +1,6 @@
-"""零依赖 bencode 解码：从 .torrent 原始字节中取出总体积（限额判定用）。"""
+"""零依赖 bencode 解码：从 .torrent 原始字节中取出体积与 infohash（限额判定/任务键用）。"""
+
+import hashlib
 
 
 def _decode(data, i):
@@ -33,3 +35,26 @@ def torrent_size(raw: bytes) -> int:
     if b"files" in info:
         return sum(int(f[b"length"]) for f in info[b"files"])
     return int(info[b"length"])
+
+
+def info_span(raw: bytes):
+    """返回顶层 b"info" 值在原始字节中的区间 (start, end)。
+
+    infohash 的定义是对该区间字节的 SHA-1，必须用原始字节而不是重编码。
+    """
+    if raw[0:1] != b"d":
+        raise ValueError("种子根节点必须是字典")
+    i = 1
+    while raw[i : i + 1] != b"e":
+        key, i = _decode(raw, i)
+        start = i
+        _value, i = _decode(raw, i)
+        if key == b"info":
+            return start, i
+    raise ValueError("种子中缺少 info 字典")
+
+
+def infohash_from_bytes(raw: bytes) -> str:
+    """计算种子 v1 infohash（hex），与 qBittorrent/libtorrent 一致，作为任务唯一键。"""
+    start, end = info_span(raw)
+    return hashlib.sha1(raw[start : end]).hexdigest()

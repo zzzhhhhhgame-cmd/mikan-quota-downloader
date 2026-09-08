@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mikan-quota-downloader"
+version = "0.2.0"
+description = "Mikan 订阅自动追番：订阅监控 + 下载引擎 + 每日限额（V1 脚本；V2 桌面端见 PLAN-DESKTOP.md）"
+requires-python = ">=3.9"
+dependencies = [
+    "curl-cffi>=0.7",
+    "requests>=2.31",
+    "feedparser>=6.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# V2 桌面端（libtorrent 在 macOS 无官方 PyPI 轮子，需 brew/源码安装，见 PLAN-DESKTOP.md 第 8 节）
+desktop = [
+    "pywebview>=5",
+    "fastapi>=0.111",
+    "uvicorn>=0.30",
+    "libtorrent>=2.0; platform_system != 'Darwin'",
+]
+dev = ["pytest>=8"]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+packages = ["mqd"]

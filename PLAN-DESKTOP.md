@@ -2,7 +2,7 @@
 
 > 前置：V1 计划书见 [PLAN.md](PLAN.md)（订阅监控脚本 + qBittorrent + 每日 30GB 限额，已交付骨架）
 > 本篇目标：**抛弃 qBittorrent 的界面，把「网站订阅管理 + 下载引擎 + 限额排队」合并成一个原生桌面应用**（macOS / Windows）
-> 撰写日期：2026-09-08 ｜ 状态：规划稿，待确认后开工
+> 撰写日期：2026-09-08 ｜ 状态：**三项决策已按推荐确认，进入执行**（M1 引擎层已交付，见第 9/12 节）
 
 ---
 
@@ -198,7 +198,7 @@ FastAPI SSE（`/api/events`）推送：任务进度（合并至 1s 一帧）、�
 
 | 阶段 | 内容 | 交付判据 |
 |---|---|---|
-| M1 | 引擎层：`LibtorrentEngine` + `QbtWebuiEngine` + 接口单测；限额层接入引擎计数 | 脚本驱动下载/暂停/记账跑通，`pytest` 绿 |
+| M1 | 引擎层：`LibtorrentEngine` + `QbtWebuiEngine` + 接口单测；限额层接入引擎计数 | ✅ 已交付（2026-09-08）：`desktop/server/engine/`、`services/quota_guard.py`，pytest/unittest 全绿 |
 | M2 | 本地服务 + pywebview 空壳 + 登录向导（webview 收割会话） | 应用窗口能登录 Mikan 并通过 CF，会话落盘可复用 |
 | M3 | 前端骨架（Vue3）+ 追番库/详情页 + 订阅管理（注入按钮→入库） | 应用内完成「订阅→出现新集→自动下载」闭环 |
 | M4 | 任务页 + 看板页 + SSE 实时刷新 + 限额排队可视化 | 限额打满时 UI 正确展示排队与次日恢复 |
@@ -225,16 +225,24 @@ mikan-quota-downloader/
 ├── PLAN.md / PLAN-DESKTOP.md      ← V1 / V2 计划书
 ├── src/mqd/                        ← V1 业务层（复用，见第 5 节）
 ├── desktop/
-│   ├── server/                     ← FastAPI（api/、scheduler/、engine/）
-│   │   ├── engine/libtorrent_engine.py · qbt_engine.py · base.py
-│   │   └── main.py
-│   ├── web/                        ← Vue3 + Vite 前端（构建产物进 server/static）
-│   └── app.py                      ← pywebview 启动器（打包入口）
-└── tests/
+│   ├── server/
+│   │   ├── engine/        ← ✅ base.py（Engine 接口）/ libtorrent_engine.py / qbt_engine.py
+│   │   ├── services/      ← ✅ quota_guard.py（限额守门，接入引擎计数）
+│   │   └── api/ · scheduler/ · main.py   ← M2+ 落地（FastAPI、SSE、订阅轮询）
+│   ├── web/               ← M3 落地（Vue3 + Naive UI）
+│   └── app.py             ← M2 落地（pywebview 启动器，打包入口）
+└── tests/                 ← V1 + V2 单测（限额/记账/bencode/双引擎/QuotaGuard）
 ```
 
-## 12. 待确认事项（开工前需要你拍板）
+## 12. 决策记录（已确认，2026-09-08）
 
-1. **技术路线确认**：内嵌 libtorrent（推荐主线）+ qBt 后备引擎——是否认可？
-2. **前端框架**：Vue 3 + Naive UI（我的推荐）；如你更熟 React 可换，UI 设计不受影响；
-3. **与 V1 的关系**：V1 脚本保留可用（qBt 用户），V2 应用独立成 `desktop/` 目录，同仓库演进。
+按推荐方案拍板，进入执行：
+
+| 决策点 | 结论 |
+|---|---|
+| 技术路线 | **内嵌 libtorrent**（`LibtorrentEngine`）为主线；`QbtWebuiEngine`（连外部 qBittorrent）作为后备实现，二者实现同一 `Engine` 接口 |
+| 前端框架 | **Vue 3 + Vite + Naive UI + Tailwind** |
+| 仓库布局 | **与 V1 同仓库演进**：业务层复用 `src/mqd/`，V2 代码位于 `desktop/`，V1 脚本继续可用；已加 `pyproject.toml` 支持各端安装 |
+
+当前进度：M1 已交付——引擎抽象 + 双引擎实现 + QuotaGuard（限额守门，接入引擎计数）
++ 单元测试全绿；下一步 M2（pywebview 壳 + 应用内登录向导）。
