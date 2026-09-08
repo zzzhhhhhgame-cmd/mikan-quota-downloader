@@ -8,6 +8,9 @@ BT 流量绑定物理网卡**直连不经过 VPN**。macOS / Windows 双端可�
 > 📋 完整方案（选型对比、Cloudflare 会话策略、限额算法、部署方式、里程碑）见
 > [PLAN.md](PLAN.md)。
 >
+> 📖 **使用手册（安装、登录、下载目录、限额调整、排查，含逐步人工操作说明）见
+> [USAGE.md](USAGE.md)。**
+>
 > 🖥️ V2 进行中：抛弃 qBittorrent 界面，基于其内核 libtorrent 做一体化桌面应用
 > （订阅管理 + 下载 + 限额可视化），见 [PLAN-DESKTOP.md](PLAN-DESKTOP.md)。
 
