@@ -6,6 +6,9 @@
 
 > 📋 完整方案（选型对比、Cloudflare 会话策略、限额算法、部署方式、里程碑）见
 > [PLAN.md](PLAN.md)。
+>
+> 🖥️ V2 规划中：抛弃 qBittorrent 界面，基于其内核 libtorrent 做一体化桌面应用
+> （订阅管理 + 下载 + 限额可视化），见 [PLAN-DESKTOP.md](PLAN-DESKTOP.md)。
 
 ## 状态
 
