@@ -22,8 +22,27 @@ def get_settings(request: Request):
         "bt_port": int(desktop_cfg.get("bt_port", 6881)),
         "download_limit_gb": ctx.guard.quota.limit / GiB,
         "seed_limit_gb": ctx.guard.seed_limit / GiB,
+        "interval_minutes": int(ctx.cfg.setdefault("monitor", {}).get("interval_minutes", 20)),
         "config_persist": bool(ctx.config_store is not None and ctx.config_store.path),
     }
+
+
+@router.post("/interval")
+def set_interval(request: Request, payload: dict):
+    """订阅检查间隔（分钟），立即生效并回写 config.yaml。"""
+    ctx = request.app.state.ctx
+    try:
+        minutes = int(payload.get("minutes"))
+    except (TypeError, ValueError):
+        raise HTTPException(422, "minutes 必须是整数")
+    if minutes < 1:
+        raise HTTPException(422, "间隔至少 1 分钟")
+    ctx.cfg.setdefault("monitor", {})["interval_minutes"] = minutes
+    if ctx.config_store is not None:
+        ctx.config_store.update("monitor", {"interval_minutes": minutes})
+    if ctx.scheduler is not None:
+        ctx.scheduler.set_interval(minutes)
+    return {"ok": True, "interval_minutes": minutes}
 
 
 @router.post("/save-path")

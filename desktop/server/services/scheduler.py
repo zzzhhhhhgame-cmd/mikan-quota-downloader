@@ -29,12 +29,18 @@ class SyncScheduler:
             self._thread.join(timeout=5)
             self._thread = None
 
+    def set_interval(self, minutes: int):
+        """运行时调整检查间隔（分钟），下一轮生效。"""
+        self._interval_s = max(1, int(minutes)) * 60
+
     def run_once(self) -> dict:
         resumed, gate_closed = self._guard.sync()
-        self.last_result = {
-            "resumed": resumed,
-            "seed_gate_closed": gate_closed,
-        }
+        self.last_result = {"resumed": resumed, "seed_gate_closed": gate_closed}
+        if self._mikan_job is not None:
+            try:
+                self.last_result["subscriptions"] = self._mikan_job()
+            except Exception:
+                log.exception("订阅检查失败")
         log.info(
             "调度完成：放行 %d 个任务，做种闸门%s",
             len(resumed),

@@ -1,7 +1,8 @@
-"""本地状态库（SQLite）：RSS 条目去重 + 种子下载/上传字节按自然日记账。"""
+"""本地状态库（SQLite）：RSS 条目去重 + 订阅管理 + 种子下载/上传字节按自然日记账。"""
 
 import sqlite3
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +21,7 @@ class Store:
         # API 线程池与调度器线程会并发访问，显式允许跨线程并用锁串行化
         self._lock = threading.Lock()
         self.conn = sqlite3.connect(path, check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row
         self.conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS seen(
@@ -35,6 +37,16 @@ class Store:
                 uploaded INTEGER
             );
             CREATE TABLE IF NOT EXISTS daily(day TEXT PRIMARY KEY, used INTEGER, up_used INTEGER);
+            CREATE TABLE IF NOT EXISTS subscriptions(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rss_url TEXT UNIQUE,
+                title TEXT DEFAULT '',
+                save_path TEXT DEFAULT '',
+                enabled INTEGER DEFAULT 1,
+                added_at REAL DEFAULT 0,
+                last_checked REAL DEFAULT 0,
+                last_error TEXT DEFAULT ''
+            );
             """
         )
         self._migrate()
@@ -62,6 +74,67 @@ class Store:
             self.conn.execute(
                 "INSERT OR IGNORE INTO seen VALUES (?,?,?,?)",
                 (guid, torrent_hash, title, added_at),
+            )
+            self.conn.commit()
+
+    # ---- 订阅（RSS 链接） ----
+
+    def sub_add(self, rss_url: str, title: str = "", save_path: str = "") -> int:
+        """按 URL upsert：重复添加视为更新标题/目录并重新启用。返回订阅 id。"""
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT id FROM subscriptions WHERE rss_url=?", (rss_url,)
+            ).fetchone()
+            if row is not None:
+                self.conn.execute(
+                    "UPDATE subscriptions SET title=?, save_path=?, enabled=1 WHERE id=?",
+                    (title, save_path, row["id"]),
+                )
+                self.conn.commit()
+                return row["id"]
+            cur = self.conn.execute(
+                "INSERT INTO subscriptions(rss_url, title, save_path, enabled, added_at) "
+                "VALUES (?,?,?,?,?)",
+                (rss_url, title, save_path, 1, time.time()),
+            )
+            self.conn.commit()
+            return int(cur.lastrowid)
+
+    def _sub_dict(self, row):
+        return dict(row)
+
+    def sub_list(self, enabled_only: bool = False):
+        with self._lock:
+            sql = "SELECT * FROM subscriptions"
+            if enabled_only:
+                sql += " WHERE enabled=1"
+            sql += " ORDER BY id"
+            return [self._sub_dict(r) for r in self.conn.execute(sql).fetchall()]
+
+    def sub_get(self, sub_id: int):
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT * FROM subscriptions WHERE id=?", (sub_id,)
+            ).fetchone()
+            return self._sub_dict(row) if row is not None else None
+
+    def sub_delete(self, sub_id: int):
+        with self._lock:
+            self.conn.execute("DELETE FROM subscriptions WHERE id=?", (sub_id,))
+            self.conn.commit()
+
+    def sub_set_enabled(self, sub_id: int, enabled: bool):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE subscriptions SET enabled=? WHERE id=?", (1 if enabled else 0, sub_id)
+            )
+            self.conn.commit()
+
+    def sub_mark_checked(self, sub_id: int, error: str | None = None):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE subscriptions SET last_checked=?, last_error=? WHERE id=?",
+                (time.time(), error or "", sub_id),
             )
             self.conn.commit()
 

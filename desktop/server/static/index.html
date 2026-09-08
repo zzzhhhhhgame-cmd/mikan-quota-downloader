@@ -110,6 +110,27 @@ input{width:110px}textarea{width:100%;min-height:60px;resize:vertical}
   </div>
 
   <div class="card">
+    <h2>订阅（RSS 链接 · 无需登录）</h2>
+    <div class="row">
+      <input id="sub-url" placeholder="粘贴 RSS 链接，如 https://mikan.tangbai.cc/RSS/Bangumi?bangumiId=3992&subgroupid=370" style="flex:1;min-width:260px;width:auto">
+      <input id="sub-title" placeholder="名称（可选）" style="width:130px">
+      <input id="sub-path" placeholder="目录（可选）" style="width:150px">
+      <button onclick="addSub()">添加订阅</button>
+    </div>
+    <div class="row">
+      <label>检查间隔 <input id="sub-interval" type="number" min="1" style="width:70px"> 分钟</label>
+      <button class="ghost" onclick="saveInterval()">保存间隔</button>
+      <button class="ghost" onclick="checkAllSubs()">全部立即检查</button>
+    </div>
+    <table>
+      <thead><tr><th>名称</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody id="subs"><tr><td colspan="3" class="mut">加载中…</td></tr></tbody>
+    </table>
+    <div class="hint">粘贴即下载本轮全部集数；之后每隔设定时间自动检查新集（GUID 去重，不会重复下）。
+      番剧 RSS 是滚动窗口，应用离线超过窗口期漏掉的集数请用手动添加补种。</div>
+  </div>
+
+  <div class="card">
     <h2>下载任务</h2>
     <table>
       <thead><tr><th>名称</th><th>状态</th><th>进度</th><th>速度</th><th>大小</th><th>操作</th></tr></thead>
@@ -175,6 +196,54 @@ async function refreshSession(){
   const s = await api('/api/session');
   $('session-status').innerHTML = s.configured? '<span class="badge ok">已配置</span> <span class="mut">'+s.file+'</span>' : '<span class="badge bad">未配置</span> <span class="mut">请完成登录</span>';
 }
+async function loadSubs(){
+  try{
+    const d = await api('/api/subscriptions');
+    $('subs').innerHTML = d.subscriptions.length? d.subscriptions.map(s=>{
+      const when = s.last_checked? new Date(s.last_checked*1000).toLocaleString() : '未检查';
+      const state = s.last_error
+        ? `<span class="badge bad" title="${s.last_error.replace(/"/g,'&quot;')}">异常</span>`
+        : (s.last_checked? '<span class="badge ok">正常</span>' : '<span class="badge">未检查</span>');
+      const flag = s.enabled? '' : '<span class="badge warn">已停用</span>';
+      return `<tr><td>${s.title || s.rss_url}</td><td class="mut">${when} ${state} ${flag}</td>
+        <td>
+          <button class="small ghost" onclick="checkSub(${s.id})">立即检查</button>
+          <button class="small ghost" onclick="toggleSub(${s.id}, ${s.enabled? 'false':'true'})">${s.enabled? '停用':'启用'}</button>
+          <button class="small ghost" onclick="delSub(${s.id})">删除</button>
+        </td></tr>`;
+    }).join('') : '<tr><td colspan="3" class="mut">还没有订阅：在 Mikan 番剧页点 RSS 图标复制链接，粘贴到上方即可</td></tr>';
+    if(document.activeElement.id !== 'sub-interval' && $('sub-interval').value === '')
+      $('sub-interval').value = d.interval_minutes;
+  }catch(e){ $('subs').innerHTML = '<tr><td colspan="3" class="mut">加载失败：'+e.message+'</td></tr>'; }
+}
+async function addSub(){
+  try{
+    const r = await api('/api/subscriptions', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({rss_url: $('sub-url').value.trim(), title: $('sub-title').value.trim(), save_path: $('sub-path').value.trim()})});
+    $('sub-url').value = ''; $('sub-title').value = '';
+    toast(r.blocked? '订阅已保存，但被 Cloudflare 拦截：请按手册 §4 方式 B 导入 Cookie（无需登录账号）'
+      : `订阅成功「${r.title||r.rss_url}」：共 ${r.total} 条，新开始 ${r.started} 条，排队 ${r.queued} 条`);
+    loadSubs(); poll();
+  }catch(e){ toast(e.message); }
+}
+async function checkSub(id){
+  try{ const r = await api(`/api/subscriptions/${id}/check`, {method:'POST'});
+    toast(r.blocked? '被 Cloudflare 拦截：请导入 Cookie（无需登录）' : `检查完成：新开始 ${r.started} 条，排队 ${r.queued} 条`);
+    loadSubs(); poll();
+  }catch(e){ toast(e.message); }
+}
+async function toggleSub(id, enabled){
+  try{ await api(`/api/subscriptions/${id}/toggle`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({enabled})}); loadSubs(); }
+  catch(e){ toast(e.message); }
+}
+async function delSub(id){ try{ await api(`/api/subscriptions/${id}`, {method:'DELETE'}); loadSubs(); }catch(e){ toast(e.message); } }
+async function checkAllSubs(){ try{ await api('/api/subscriptions/check-all', {method:'POST'}); toast('已触发全部检查'); loadSubs(); poll(); }catch(e){ toast(e.message); } }
+async function saveInterval(){
+  try{ const r = await api('/api/settings/interval', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({minutes: parseInt($('sub-interval').value)||20})});
+    toast('检查间隔已保存：'+r.interval_minutes+' 分钟');
+  }catch(e){ toast(e.message); }
+}
 async function desktopLogin(){
   if(window.pywebview && window.pywebview.api){ await window.pywebview.api.open_login_window(); toast('已打开登录窗口，完成后回来点②'); }
   else toast('当前是浏览器模式：请手动复制 Cookie 后用下方导入');
@@ -222,7 +291,7 @@ async function addTorrent(){
     $('torrent-file').value = ''; poll();
   }catch(e){ toast(e.message); }
 }
-refreshSession(); loadSettings(); poll(); setInterval(poll, 2500);
+refreshSession(); loadSettings(); loadSubs(); poll(); setInterval(poll, 2500);
 </script>
 </body>
 </html>

@@ -12,7 +12,9 @@ from server.main import create_app
 from server.services.app_context import AppContext
 from server.services.quota_guard import QuotaGuard
 from server.services.session_manager import SessionManager
+from server.services.subscription_service import SubscriptionService
 
+from fakes import FakeMikan, make_episode
 from test_quota_guard import FakeEngine, make_torrent
 
 
@@ -28,12 +30,17 @@ class ApiTestBase(unittest.TestCase):
             download_quota=DailyQuota(100),
             seed_limit_bytes=100,
         )
+        self.mikan = FakeMikan()
         self.ctx = AppContext(
             cfg={"mikan": {"base_url": "https://mikan.example"}},
             engine=engine,
             store=guard.store,
             guard=guard,
             sessions=SessionManager("https://mikan.example", f"{self.tmp}/session.json"),
+            mikan=self.mikan,
+        )
+        self.ctx.subs = SubscriptionService(
+            guard.store, guard, self.mikan, lambda: self.ctx.default_save_path
         )
         self.engine = engine
         self.client = TestClient(create_app(self.ctx))
@@ -132,6 +139,79 @@ class SessionApiTest(ApiTestBase):
         saved = self.ctx.sessions.load()
         self.assertEqual(saved["user_agent"], "UA/1.0")
         self.assertIn("storage_state", saved)
+
+
+class SubscriptionsApiTest(ApiTestBase):
+    URL = "https://mikan.example/RSS/Bangumi?bangumiId=3992&subgroupid=370"
+
+    def setUp(self):
+        super().setUp()
+        self.ctx.default_save_path = "/dl"
+        self.mikan.set_feed(
+            self.URL, "某番", [make_episode("g1", "第01集", 1.0), make_episode("g2", "第02集", 2.0)]
+        )
+
+    def test_empty_list_with_interval(self):
+        data = self.client.get("/api/subscriptions").json()
+        self.assertEqual(data["subscriptions"], [])
+        self.assertEqual(data["interval_minutes"], 20)
+
+    def test_add_downloads_immediately_and_lists(self):
+        resp = self.client.post("/api/subscriptions", json={"rss_url": self.URL, "title": "我的番"})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["started"], 2)
+        self.assertEqual(data["title"], "我的番")
+        subs = self.client.get("/api/subscriptions").json()["subscriptions"]
+        self.assertEqual(len(subs), 1)
+        self.assertEqual(subs[0]["title"], "我的番")
+
+    def test_add_requires_directory(self):
+        self.ctx.default_save_path = ""
+        resp = self.client.post("/api/subscriptions", json={"rss_url": self.URL})
+        self.assertEqual(resp.status_code, 422)
+        self.assertIn("下载目录", resp.json()["detail"])
+
+    def test_add_invalid_url_rejected(self):
+        resp = self.client.post("/api/subscriptions", json={"rss_url": "junk"})
+        self.assertEqual(resp.status_code, 422)
+
+    def test_blocked_returns_guidance_but_saves(self):
+        self.mikan.mode = "blocked"
+        resp = self.client.post("/api/subscriptions", json={"rss_url": self.URL})
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()["blocked"])
+        self.assertIn("Cookie", resp.json()["detail"])
+        self.assertEqual(len(self.client.get("/api/subscriptions").json()["subscriptions"]), 1)
+
+    def test_check_toggle_delete(self):
+        sub_id = self.client.post("/api/subscriptions", json={"rss_url": self.URL}).json()["id"]
+        result = self.client.post(f"/api/subscriptions/{sub_id}/check").json()
+        self.assertEqual(result["started"], 0)  # GUID 去重
+
+        toggled = self.client.post(
+            f"/api/subscriptions/{sub_id}/toggle", json={"enabled": False}
+        ).json()
+        self.assertEqual(toggled["enabled"], 0)
+
+        self.client.delete(f"/api/subscriptions/{sub_id}")
+        self.assertEqual(self.client.get("/api/subscriptions").json()["subscriptions"], [])
+        self.assertEqual(self.client.post(f"/api/subscriptions/{sub_id}/check").status_code, 404)
+
+    def test_check_all_endpoint(self):
+        self.client.post("/api/subscriptions", json={"rss_url": self.URL})
+        data = self.client.post("/api/subscriptions/check-all").json()
+        self.assertEqual(data["checked"], 1)
+
+    def test_interval_update(self):
+        resp = self.client.post("/api/settings/interval", json={"minutes": 5})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            self.client.get("/api/subscriptions").json()["interval_minutes"], 5
+        )
+        self.assertEqual(
+            self.client.post("/api/settings/interval", json={"minutes": 0}).status_code, 422
+        )
 
 
 if __name__ == "__main__":

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from mqd.mikan import MikanClient
 from mqd.quota import DailyQuota, GiB
+from mqd.session import HttpClient
 from mqd.store import Store
 
 from ..engine.base import Engine, EngineError
@@ -14,6 +16,7 @@ from .config_store import ConfigStore
 from .quota_guard import QuotaGuard
 from .scheduler import SyncScheduler
 from .session_manager import SessionManager
+from .subscription_service import SubscriptionService
 
 
 @dataclass
@@ -26,6 +29,8 @@ class AppContext:
     scheduler: SyncScheduler | None = None
     config_store: ConfigStore | None = None  # 指向实际加载的 config.yaml；None=不回写
     default_save_path: str = ""  # 全局默认下载目录（空=未设置）
+    mikan: MikanClient | None = None  # 站点客户端（订阅轮询与种子下载共用）
+    subs: SubscriptionService | None = None  # RSS 链接订阅服务
     # app.py 注入：桌面 webview 会话收割（HTTP 端点代理调用；浏览器环境为 None）
     harvest_callback: object | None = field(default=None)
 
@@ -62,7 +67,14 @@ def build_context(cfg: dict, config_path: str | None = None) -> AppContext:
         cfg["mikan"].get("session_file", "data/session.json"),
     )
     scheduler = SyncScheduler(guard, int(cfg["monitor"].get("interval_minutes", 20)))
-    return AppContext(
+    http = HttpClient(
+        cfg["mikan"]["base_url"],
+        session_file=cfg["mikan"].get("session_file"),
+        cookie_string=cfg["mikan"].get("cookie_string") or None,
+        user_agent=cfg["mikan"].get("user_agent") or None,
+    )
+    mikan = MikanClient(http)
+    ctx = AppContext(
         cfg=cfg,
         engine=engine,
         store=store,
@@ -71,7 +83,11 @@ def build_context(cfg: dict, config_path: str | None = None) -> AppContext:
         scheduler=scheduler,
         config_store=ConfigStore(config_path),
         default_save_path=str(desktop_cfg.get("save_path") or ""),
+        mikan=mikan,
     )
+    ctx.subs = SubscriptionService(store, guard, mikan, save_path_provider=lambda: ctx.default_save_path)
+    scheduler.mikan_job = ctx.subs.check_all
+    return ctx
 
 
 def _build_engine(cfg: dict) -> Engine:
