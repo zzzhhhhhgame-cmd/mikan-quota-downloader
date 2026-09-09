@@ -14,6 +14,7 @@ def list_subscriptions(request: Request):
     ctx = request.app.state.ctx
     return {
         "subscriptions": ctx.store.sub_list(),
+        "deleted": ctx.store.sub_list(deleted=True),
         "interval_minutes": int(ctx.cfg.setdefault("monitor", {}).get("interval_minutes", 20)),
     }
 
@@ -65,10 +66,23 @@ def toggle_subscription(sub_id: int, request: Request, payload: dict):
     return ctx.store.sub_get(sub_id)
 
 
+@router.post("/{sub_id}/restore")
+def restore_subscription(sub_id: int, request: Request):
+    ctx = request.app.state.ctx
+    try:
+        return ctx.subs.restore(sub_id)
+    except SubscriptionError as exc:
+        raise HTTPException(404, str(exc))
+
+
 @router.delete("/{sub_id}")
-def delete_subscription(sub_id: int, request: Request):
+def delete_subscription(sub_id: int, request: Request, purge: bool = False):
+    """purge=False 软删除（移入已删除，可恢复）；purge=True 连集数追踪一起彻底删除。"""
     ctx = request.app.state.ctx
     if ctx.store.sub_get(sub_id) is None:
         raise HTTPException(404, f"订阅不存在: {sub_id}")
-    ctx.store.sub_delete(sub_id)
+    if purge:
+        ctx.store.sub_purge(sub_id)
+        return {"ok": True, "purged": True}
+    ctx.subs.delete(sub_id)
     return {"ok": True}

@@ -16,14 +16,25 @@
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);
   font:15px/1.6 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
-.wrap{max-width:1120px;margin:0 auto;padding:24px 24px 60px}
-header.app{display:flex;align-items:baseline;gap:14px;margin:6px 0 4px}
-h1{font-size:22px;margin:0;letter-spacing:.5px}
+
+/* ── 左侧固定导航 ── */
+.side{position:fixed;left:0;top:0;bottom:0;width:212px;background:var(--card);
+  border-right:1px solid var(--line);display:flex;flex-direction:column;padding:20px 12px 16px;z-index:10}
+.side-brand{font-size:17px;font-weight:700;padding:4px 12px 4px}
+.side-sub{font-size:12px;color:var(--mut);padding:0 12px 14px;border-bottom:1px solid var(--line);margin-bottom:10px}
+.side nav{display:flex;flex-direction:column;gap:2px}
+.side a{display:block;padding:11px 14px;border-radius:8px;color:var(--fg);
+  text-decoration:none;font-size:14px;cursor:pointer}
+.side a:hover{background:#f3f4f6}
+.side a.active{background:var(--acc-soft);color:var(--acc);font-weight:600}
+.side-bottom{margin-top:auto;border-top:1px solid var(--line);padding-top:10px}
+
+/* ── 主内容 ── */
+.main{margin-left:212px;padding:26px 30px 60px;max-width:1020px}
+.page{display:none}
 h2{font-size:16px;margin:0 0 14px;display:flex;align-items:center;gap:8px}
 h2::before{content:"";width:4px;height:16px;background:var(--acc);border-radius:2px;display:inline-block}
 .mut{color:var(--mut)}
-.num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
-  border-radius:6px;background:var(--acc);color:#fff;font-size:13px;font-weight:600}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
   padding:20px 22px;margin-top:18px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
@@ -35,7 +46,6 @@ button:hover{background:var(--acc-dark)}
 button.ghost{background:var(--card);border:1px solid var(--line-strong);color:var(--fg)}
 button.ghost:hover{background:#f9fafb}
 button.small{padding:5px 12px;font-size:13px;border-radius:7px}
-button.danger{background:var(--bad);border-color:var(--bad)}
 input,textarea{background:#fff;border:1px solid var(--line-strong);color:var(--fg);
   border-radius:8px;padding:8px 12px;font-size:14px}
 input:focus,textarea:focus{outline:2px solid var(--acc-soft);border-color:var(--acc)}
@@ -43,7 +53,7 @@ input{width:130px}
 textarea{width:100%;min-height:64px;resize:vertical}
 label{font-size:14px}
 table{width:100%;border-collapse:collapse;margin-top:10px}
-th,td{text-align:left;padding:10px 10px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:middle}
+th,td{text-align:left;padding:10px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:middle}
 th{color:var(--mut);font-weight:500;font-size:13px;background:#f9fafb}
 tr:last-child td{border-bottom:0}
 .bar{height:12px;background:var(--line);border-radius:7px;overflow:hidden;margin:6px 0 2px}
@@ -57,120 +67,176 @@ tr:last-child td{border-bottom:0}
 #toast{position:fixed;right:20px;bottom:20px;background:var(--card);border:1px solid var(--line);
   border-radius:10px;padding:12px 18px;display:none;box-shadow:0 8px 24px rgba(16,24,40,.12);font-size:14px;max-width:420px}
 .quota-chip{display:flex;gap:6px;align-items:center;font-size:14px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:4px}
+.stat{background:#f9fafb;border:1px solid var(--line);border-radius:10px;padding:12px 14px;text-align:center}
+.stat b{display:block;font-size:22px}
+.stat span{font-size:13px;color:var(--mut)}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header class="app">
-    <h1>追番下载器</h1>
-    <span class="mut" id="engine-info">启动中…</span>
-  </header>
 
-  <div class="card">
-    <h2><span class="num">1</span>今日限额 <span class="mut" style="font-weight:400;font-size:13px">自然日 0 点重置 · 测试期默认 1GB</span></h2>
-    <div class="grid">
-      <div>
-        <div class="quota-chip">↓ 下载 <span class="mut" id="dl-text"></span></div>
-        <div class="bar" id="dl-bar"><i></i></div>
-      </div>
-      <div>
-        <div class="quota-chip">↑ 做种/上传 <span class="mut" id="up-text"></span></div>
-        <div class="bar" id="up-bar"><i></i></div>
-      </div>
-    </div>
-    <div class="row">
-      <label>下载上限 <input id="dl-limit" type="number" min="0" step="0.5"> GB</label>
-      <label>做种上限 <input id="up-limit" type="number" min="0" step="0.5"> GB</label>
-      <button onclick="saveLimits()">保存限额</button>
-      <span id="gate" class="badge"></span>
-    </div>
+<aside class="side">
+  <div class="side-brand">追番下载器</div>
+  <div class="side-sub" id="engine-info">启动中…</div>
+  <nav>
+    <a data-page="home" class="active">主页</a>
+    <a data-page="subs">订阅</a>
+    <a data-page="add">下载</a>
+    <a data-page="tasks">下载任务</a>
+    <a data-page="ratelimit">全局限速</a>
+  </nav>
+  <div class="side-bottom">
+    <a data-page="settings">⚙ 设置</a>
   </div>
+</aside>
 
-  <div class="card">
-    <h2><span class="num">2</span>订阅（RSS 链接 · 无需登录）</h2>
-    <div class="row">
-      <input id="sub-url" placeholder="粘贴 RSS 链接，如 https://mikan.tangbai.cc/RSS/Bangumi?bangumiId=3992&subgroupid=370" style="flex:1;min-width:260px;width:auto">
-      <input id="sub-title" placeholder="名称（可选）" style="width:130px">
-      <input id="sub-path" placeholder="目录（可选）" style="width:150px">
-      <button onclick="addSub()">添加订阅</button>
-    </div>
-    <div class="row">
-      <label>检查间隔 <input id="sub-interval" type="number" min="1" style="width:76px"> 分钟</label>
-      <button class="ghost" onclick="saveInterval()">保存间隔</button>
-      <button class="ghost" onclick="checkAllSubs()">全部立即检查</button>
-    </div>
-    <table>
-      <thead><tr><th style="width:26%">名称</th><th>状态</th><th style="width:250px">操作</th></tr></thead>
-      <tbody id="subs"><tr><td colspan="3" class="mut">加载中…</td></tr></tbody>
-    </table>
-    <div class="hint">粘贴即下载本轮全部集数；之后按设定间隔自动检查新集（GUID 去重，不会重复下）。
-      番剧 RSS 是滚动窗口，应用离线超过窗口期漏掉的集数请用「③ 添加下载」补种。</div>
-  </div>
+<main class="main">
 
-  <div class="grid">
+  <!-- 主页：今日限额 + 任务概览 -->
+  <div class="page" id="page-home">
+    <div class="card" style="margin-top:0">
+      <h2>今日限额 <span class="mut" style="font-weight:400;font-size:13px">自然日 0 点重置 · 上限在「设置」调整 · 测试期默认 1GB</span></h2>
+      <div class="grid">
+        <div>
+          <div class="quota-chip">↓ 下载 <span class="mut" id="dl-text"></span></div>
+          <div class="bar" id="dl-bar"><i></i></div>
+        </div>
+        <div>
+          <div class="quota-chip">↑ 做种/上传 <span class="mut" id="up-text"></span></div>
+          <div class="bar" id="up-bar"><i></i></div>
+        </div>
+      </div>
+      <div class="row"><span id="gate" class="badge"></span>
+        <span class="hint" style="margin:0">上限调整在 左侧「⚙ 设置」</span></div>
+    </div>
     <div class="card">
-      <h2><span class="num">3</span>添加下载 · 磁力链接</h2>
+      <h2>任务概览</h2>
+      <div class="stats">
+        <div class="stat"><b id="sum-downloading">0</b><span>下载中</span></div>
+        <div class="stat"><b id="sum-seeding">0</b><span>做种中</span></div>
+        <div class="stat"><b id="sum-queued">0</b><span>排队/暂停</span></div>
+        <div class="stat"><b id="sum-completed">0</b><span>已完成</span></div>
+      </div>
+      <div class="hint">详细列表见左侧「下载任务」。</div>
+    </div>
+  </div>
+
+  <!-- 订阅 -->
+  <div class="page" id="page-subs">
+    <div class="card" style="margin-top:0">
+      <h2>添加订阅（RSS 链接 · 无需登录）</h2>
+      <div class="row" style="margin-top:0">
+        <input id="sub-url" placeholder="粘贴 RSS 链接，如 https://mikan.tangbai.cc/RSS/Bangumi?bangumiId=3992&subgroupid=370" style="flex:1;min-width:260px;width:auto">
+        <input id="sub-title" placeholder="名称（可选）" style="width:130px">
+        <input id="sub-path" placeholder="目录（可选）" style="width:150px">
+        <button onclick="addSub()">添加订阅</button>
+      </div>
+      <div class="row">
+        <label>检查间隔 <input id="sub-interval" type="number" min="1" style="width:76px"> 分钟</label>
+        <button class="ghost" onclick="saveInterval()">保存间隔</button>
+        <button class="ghost" onclick="checkAllSubs()">全部立即检查</button>
+      </div>
+      <div class="hint">粘贴即下载本轮全部集数；之后按设定间隔自动检查新集（去重，不会重复下）。
+        每个集数会持续追踪到下载完成——期间任务丢失会自动重新入队。</div>
+    </div>
+    <div class="card">
+      <h2>我的订阅</h2>
+      <table>
+        <thead><tr><th style="width:26%">名称</th><th>状态</th><th style="width:290px">操作</th></tr></thead>
+        <tbody id="subs"><tr><td colspan="3" class="mut">加载中…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h2>已删除 <span class="mut" style="font-weight:400;font-size:13px">删除只是移出自动追更，可随时恢复；未下完的集数不会自动续下，恢复订阅后才会继续</span></h2>
+      <table>
+        <thead><tr><th style="width:26%">名称</th><th>删除时间</th><th style="width:220px">操作</th></tr></thead>
+        <tbody id="subs-deleted"><tr><td colspan="3" class="mut">无</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 下载（添加） -->
+  <div class="page" id="page-add">
+    <div class="card" style="margin-top:0">
+      <h2>磁力链接</h2>
       <div class="row" style="margin-top:0"><input id="magnet-uri" placeholder="magnet:?xt=urn:btih:…" style="width:100%"></div>
       <div class="row">
-        <label><input type="checkbox" id="magnet-seq" style="width:auto"> 顺序下载</label>
+        <label><input type="checkbox" id="magnet-seq" style="width:auto"> 顺序下载（边下边看）</label>
         <button onclick="addMagnet()">添加磁力</button>
       </div>
       <div class="hint">直接粘贴磁力链接即可，无需选择文件。体积在元数据到达后补计限额，
         超出预算会自动暂停进入等待队列。</div>
     </div>
     <div class="card">
-      <h2><span class="num">4</span>添加下载 · 种子文件</h2>
+      <h2>种子文件</h2>
       <div class="row" style="margin-top:0"><input type="file" id="torrent-file" accept=".torrent" style="width:100%"></div>
       <div class="row"><input id="torrent-path" placeholder="本次下载目录（留空 = 用默认目录）" style="width:100%"></div>
       <div class="row">
-        <label><input type="checkbox" id="torrent-seq" style="width:auto"> 顺序下载</label>
+        <label><input type="checkbox" id="torrent-seq" style="width:auto"> 顺序下载（边下边看）</label>
         <button onclick="addTorrent()">添加任务</button>
       </div>
       <div class="hint">同样受每日下载限额约束：预算装得下立即开始，装不下自动进入等待队列。</div>
     </div>
   </div>
 
-  <div class="card">
-    <h2><span class="num">5</span>下载任务</h2>
-    <table>
-      <thead><tr><th>名称</th><th>状态</th><th>进度</th><th>↓ 下载</th><th>↑ 上传/做种</th><th>大小</th><th>操作</th></tr></thead>
-      <tbody id="tasks"><tr><td colspan="7" class="mut">加载中…</td></tr></tbody>
-    </table>
+  <!-- 下载任务 -->
+  <div class="page" id="page-tasks">
+    <div class="card" style="margin-top:0">
+      <h2>下载任务</h2>
+      <table>
+        <thead><tr><th>名称</th><th>状态</th><th>进度</th><th>↓ 下载</th><th>↑ 上传/做种</th><th>大小</th><th>操作</th></tr></thead>
+        <tbody id="tasks"><tr><td colspan="7" class="mut">加载中…</td></tr></tbody>
+      </table>
+    </div>
   </div>
 
-  <div class="grid">
-    <div class="card">
-      <h2><span class="num">6</span>下载目录</h2>
-      <div class="row" style="margin-top:0"><input id="save-path" placeholder="绝对路径，如 /Movies/Bangumi 或 D:\Bangumi" style="width:100%"></div>
-      <div class="row"><button onclick="savePath()">保存默认下载目录</button><span class="mut" id="save-path-now"></span></div>
-      <div class="hint">目录不存在会自动创建；立即生效并回写 config.yaml，但只影响之后新增的任务。</div>
-    </div>
-    <div class="card">
-      <h2><span class="num">7</span>全局限速</h2>
+  <!-- 全局限速 -->
+  <div class="page" id="page-ratelimit">
+    <div class="card" style="margin-top:0">
+      <h2>全局限速</h2>
       <div class="row" style="margin-top:0">
         <label>↓ 下载 <input id="rl-down" type="number" min="0" placeholder="不限"> KB/s</label>
         <label>↑ 上传 <input id="rl-up" type="number" min="0" placeholder="不限"> KB/s</label>
         <button onclick="saveRateLimit()">应用限速</button>
       </div>
-      <div class="hint">速率层（跑多快）与容量限额（每天跑多少）相互独立；0 或留空 = 不限速。</div>
+      <div class="hint">速率层（跑多快）与每日容量限额（主页，每天跑多少）相互独立；0 或留空 = 不限速。</div>
     </div>
   </div>
 
-  <div class="card">
-    <h2><span class="num">8</span>站点 Cookie（Cloudflare 兜底 · 无需登录）</h2>
-    <div id="session-status" class="mut">…</div>
-    <div class="row"><button class="ghost" onclick="checkSession()">测试可用性</button>
-      <button class="ghost" onclick="clearSession()">清除</button></div>
-    <div class="hint">订阅下载通常<b>无需任何 Cookie</b>。仅当订阅/任务显示「异常：Cloudflare 拦截」时：
-    在能打开 Mikan 的浏览器按 F12 → 网络 → 刷新页面 → 点第一条请求 →
-    复制请求标头里 Cookie 的完整值，粘贴到下面导入。</div>
-    <div class="row align-top">
-      <textarea id="cookie-string" placeholder="cf_clearance=…; 其他=…（整段粘贴）"></textarea>
+  <!-- 设置 -->
+  <div class="page" id="page-settings">
+    <div class="card" style="margin-top:0">
+      <h2>限额上限</h2>
+      <div class="row" style="margin-top:0">
+        <label>下载上限 <input id="dl-limit" type="number" min="0" step="0.5"> GB</label>
+        <label>做种上限 <input id="up-limit" type="number" min="0" step="0.5"> GB</label>
+        <button onclick="saveLimits()">保存限额</button>
+      </div>
+      <div class="hint">0 = 不限。立即生效并回写 config.yaml；用量仪表盘见「主页」。</div>
     </div>
-    <div class="row"><button class="ghost" onclick="importCookies()">导入 Cookie</button></div>
-    <div class="hint" id="session-check"></div>
+    <div class="card">
+      <h2>默认下载目录</h2>
+      <div class="row" style="margin-top:0"><input id="save-path" placeholder="绝对路径，如 /Movies/Bangumi 或 D:\Bangumi" style="width:100%"></div>
+      <div class="row"><button onclick="savePath()">保存默认下载目录</button><span class="mut" id="save-path-now"></span></div>
+      <div class="hint">目录不存在会自动创建；立即生效并回写 config.yaml，但只影响之后新增的任务。</div>
+    </div>
+    <div class="card">
+      <h2>站点 Cookie（Cloudflare 兜底 · 无需登录）</h2>
+      <div id="session-status" class="mut">…</div>
+      <div class="row"><button class="ghost" onclick="checkSession()">测试可用性</button>
+        <button class="ghost" onclick="clearSession()">清除</button></div>
+      <div class="hint">订阅下载通常<b>无需任何 Cookie</b>。仅当订阅/任务显示「异常：Cloudflare 拦截」时：
+      在能打开 Mikan 的浏览器按 F12 → 网络 → 刷新页面 → 点第一条请求 →
+      复制请求标头里 Cookie 的完整值，粘贴到下面导入。</div>
+      <div class="row align-top">
+        <textarea id="cookie-string" placeholder="cf_clearance=…; 其他=…（整段粘贴）"></textarea>
+      </div>
+      <div class="row"><button class="ghost" onclick="importCookies()">导入 Cookie</button></div>
+      <div class="hint" id="session-check"></div>
+    </div>
   </div>
-</div>
+
+</main>
 <div id="toast"></div>
 <script>
 const $ = id => document.getElementById(id);
@@ -180,13 +246,24 @@ const fmtSpeed = b => b >= GiB/10 ? fmtGB(b)+' GB/s' : b >= 1024 ? (b/1024).toFi
 const STATE_TXT = {downloading:'下载中', paused:'排队/暂停', checking:'校验中', completed:'已完成', seeding:'做种中', failed:'失败'};
 const STATE_CLS = {downloading:'', paused:'warn', checking:'', completed:'ok', seeding:'ok', failed:'bad'};
 
+/* ── 侧栏路由 ── */
+function showPage(name){
+  document.querySelectorAll('.page').forEach(p => p.style.display = (p.id === 'page-'+name ? 'block' : 'none'));
+  document.querySelectorAll('.side a').forEach(a => a.classList.toggle('active', a.dataset.page === name));
+  if(name === 'subs') loadSubs();
+  if(name === 'settings'){ loadSettings(); refreshSession(); }
+  if(name === 'home' || name === 'tasks') poll();
+}
+document.querySelectorAll('.side a[data-page]').forEach(a =>
+  a.addEventListener('click', () => showPage(a.dataset.page)));
+
 function toast(msg){ const t=$('toast'); t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none', 3600); }
 async function api(path, opts){ const r = await fetch(path, opts); if(!r.ok){ let m=await r.text(); throw new Error(r.status+' '+m);} return r.status===200? r.json(): null; }
 
 async function poll(){
   try{
     const [health, quota] = await Promise.all([api('/api/health'), api('/api/quota')]);
-    $('engine-info').textContent = `引擎：${health.engine} · 服务正常`;
+    $('engine-info').textContent = `引擎：${health.engine}`;
     $('dl-text').textContent = `${fmtGB(quota.used_download)} / ${fmtGB(quota.download_limit)} GB（在途 ${fmtGB(quota.active_remaining)} GB，剩余 ${fmtGB(quota.remaining)} GB）`;
     $('up-text').textContent = `${fmtGB(quota.used_upload)} / ${quota.seed_limit? fmtGB(quota.seed_limit)+' GB':'不限'}`;
     const dlPct = quota.download_limit? Math.min(100, quota.used_download/quota.download_limit*100):0;
@@ -200,6 +277,12 @@ async function poll(){
     if(document.activeElement.id!=='dl-limit' && $('dl-limit').value==='') $('dl-limit').value = (quota.download_limit/GiB).toFixed(1).replace(/\.0$/,'');
     if(document.activeElement.id!=='up-limit' && $('up-limit').value==='') $('up-limit').value = quota.seed_limit? (quota.seed_limit/GiB).toFixed(1).replace(/\.0$/,''):'0';
     const tasks = await api('/api/tasks');
+    const counts = {downloading:0, seeding:0, paused:0, completed:0, checking:0, failed:0};
+    tasks.forEach(t => { if(counts[t.state] !== undefined) counts[t.state]++; });
+    $('sum-downloading').textContent = counts.downloading + counts.checking;
+    $('sum-seeding').textContent = counts.seeding;
+    $('sum-queued').textContent = counts.paused;
+    $('sum-completed').textContent = counts.completed + counts.failed;
     $('tasks').innerHTML = tasks.length? tasks.map(t=>`
       <tr><td>${t.name}</td>
       <td><span class="badge ${STATE_CLS[t.state]||''}">${STATE_TXT[t.state]||t.state}</span></td>
@@ -211,8 +294,8 @@ async function poll(){
         <button class="small ghost" onclick="taskOp('${t.sha}','pause')">暂停</button>
         <button class="small ghost" onclick="taskOp('${t.sha}','resume')">恢复</button>
         <button class="small ghost" onclick="taskDel('${t.sha}')">删除</button>
-      </td></tr>`).join('') : '<tr><td colspan="7" class="mut">暂无任务：去「② 订阅」添加番剧，或在「③ 添加下载」粘贴磁力链接</td></tr>';
-  }catch(e){ $('engine-info').textContent = '服务异常：'+e.message; }
+      </td></tr>`).join('') : '<tr><td colspan="7" class="mut">暂无任务：去「订阅」添加番剧，或在「下载」粘贴磁力链接</td></tr>';
+  }catch(e){ $('engine-info').textContent = '服务异常'; }
 }
 async function taskOp(sha, op){ try{ await api(`/api/tasks/${sha}/${op}`, {method:'POST'}); poll(); }catch(e){ toast(e.message);} }
 async function taskDel(sha){ try{ await api(`/api/tasks/${sha}`, {method:'DELETE'}); poll(); }catch(e){ toast(e.message);} }
@@ -235,12 +318,20 @@ async function refreshSession(){
 async function loadSubs(){
   try{
     const d = await api('/api/subscriptions');
-    $('subs').innerHTML = d.subscriptions.length? d.subscriptions.map(s=>{
+    const renderRow = (s, deleted) => {
       const when = s.last_checked? new Date(s.last_checked*1000).toLocaleString() : '未检查';
       const state = s.last_error
         ? `<span class="badge bad" title="${s.last_error.replace(/"/g,'&quot;')}">异常</span>`
         : (s.last_checked? '<span class="badge ok">正常</span>' : '<span class="badge">未检查</span>');
-      const flag = s.enabled? '' : '<span class="badge warn">已停用</span>';
+      const flag = !deleted && !s.enabled? '<span class="badge warn">已停用</span>' : '';
+      if(deleted){
+        const at = s.deleted_at? new Date(s.deleted_at*1000).toLocaleString() : '';
+        return `<tr><td class="mut">${s.title || s.rss_url}</td><td class="mut">${at}</td>
+          <td>
+            <button class="small ghost" onclick="restoreSub(${s.id})">恢复</button>
+            <button class="small ghost" onclick="delSub(${s.id}, true)">彻底删除</button>
+          </td></tr>`;
+      }
       return `<tr><td>${s.title || s.rss_url}</td><td class="mut">${when} ${state} ${flag}</td>
         <td>
           <button class="small ghost" onclick="renameSub(${s.id}, '${(s.title||'').replace(/'/g,"\\'")}')">重命名</button>
@@ -248,7 +339,11 @@ async function loadSubs(){
           <button class="small ghost" onclick="toggleSub(${s.id}, ${s.enabled? 'false':'true'})">${s.enabled? '停用':'启用'}</button>
           <button class="small ghost" onclick="delSub(${s.id})">删除</button>
         </td></tr>`;
-    }).join('') : '<tr><td colspan="3" class="mut">还没有订阅：在 Mikan 番剧页点 RSS 图标复制链接，粘贴到上方即可</td></tr>';
+    };
+    $('subs').innerHTML = d.subscriptions.length? d.subscriptions.map(s=>renderRow(s,false)).join('')
+      : '<tr><td colspan="3" class="mut">还没有订阅：在 Mikan 番剧页点 RSS 图标复制链接，粘贴到上方即可</td></tr>';
+    $('subs-deleted').innerHTML = d.deleted.length? d.deleted.map(s=>renderRow(s,true)).join('')
+      : '<tr><td colspan="3" class="mut">无</td></tr>';
     if(document.activeElement.id !== 'sub-interval' && $('sub-interval').value === '')
       $('sub-interval').value = d.interval_minutes;
   }catch(e){ $('subs').innerHTML = '<tr><td colspan="3" class="mut">加载失败：'+e.message+'</td></tr>'; }
@@ -280,7 +375,16 @@ async function renameSub(id, current){
     toast('已重命名'); loadSubs();
   }catch(e){ toast(e.message); }
 }
-async function delSub(id){ try{ await api(`/api/subscriptions/${id}`, {method:'DELETE'}); loadSubs(); }catch(e){ toast(e.message); } }
+async function delSub(id, purge){
+  const msg = purge? '彻底删除？集数追踪记录将一并清除，且不可恢复。' : '删除订阅（移入「已删除」，可恢复）？';
+  if(!confirm(msg)) return;
+  try{ await api(`/api/subscriptions/${id}${purge? '?purge=true':''}`, {method:'DELETE'}); loadSubs(); }
+  catch(e){ toast(e.message); }
+}
+async function restoreSub(id){
+  try{ await api(`/api/subscriptions/${id}/restore`, {method:'POST'}); toast('订阅已恢复，将继续自动追更'); loadSubs(); }
+  catch(e){ toast(e.message); }
+}
 async function checkAllSubs(){ try{ await api('/api/subscriptions/check-all', {method:'POST'}); toast('已触发全部检查'); loadSubs(); poll(); }catch(e){ toast(e.message); } }
 async function saveInterval(){
   try{ const r = await api('/api/settings/interval', {method:'POST', headers:{'Content-Type':'application/json'},

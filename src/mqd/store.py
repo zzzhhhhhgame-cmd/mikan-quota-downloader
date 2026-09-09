@@ -45,7 +45,18 @@ class Store:
                 enabled INTEGER DEFAULT 1,
                 added_at REAL DEFAULT 0,
                 last_checked REAL DEFAULT 0,
-                last_error TEXT DEFAULT ''
+                last_error TEXT DEFAULT '',
+                deleted_at REAL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS sub_episodes(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sub_id INTEGER,
+                guid TEXT UNIQUE,
+                sha TEXT,
+                title TEXT DEFAULT '',
+                state TEXT DEFAULT 'added',
+                added_at REAL DEFAULT 0,
+                done_at REAL DEFAULT 0
             );
             """
         )
@@ -53,9 +64,10 @@ class Store:
         self.conn.commit()
 
     def _migrate(self):
-        """旧版本库没有 uploaded/up_used 列，自动补齐（V1 数据无损升级）。"""
+        """旧版本库自动补列（V1 数据无损升级）。"""
         self._ensure_column("ledger", "uploaded", "INTEGER DEFAULT 0")
         self._ensure_column("daily", "up_used", "INTEGER DEFAULT 0")
+        self._ensure_column("subscriptions", "deleted_at", "REAL DEFAULT 0")
 
     def _ensure_column(self, table, column, ddl):
         columns = {row[1] for row in self.conn.execute(f"PRAGMA table_info({table})")}
@@ -80,14 +92,14 @@ class Store:
     # ---- 订阅（RSS 链接） ----
 
     def sub_add(self, rss_url: str, title: str = "", save_path: str = "") -> int:
-        """按 URL upsert：重复添加视为更新标题/目录并重新启用。返回订阅 id。"""
+        """按 URL upsert：重复添加视为更新标题/目录并重新启用（含从已删除恢复）。返回订阅 id。"""
         with self._lock:
             row = self.conn.execute(
                 "SELECT id FROM subscriptions WHERE rss_url=?", (rss_url,)
             ).fetchone()
             if row is not None:
                 self.conn.execute(
-                    "UPDATE subscriptions SET title=?, save_path=?, enabled=1 WHERE id=?",
+                    "UPDATE subscriptions SET title=?, save_path=?, enabled=1, deleted_at=0 WHERE id=?",
                     (title, save_path, row["id"]),
                 )
                 self.conn.commit()
@@ -103,13 +115,21 @@ class Store:
     def _sub_dict(self, row):
         return dict(row)
 
-    def sub_list(self, enabled_only: bool = False):
+    def sub_list(self, deleted: bool = False, enabled_only: bool = False):
+        """deleted=False 只列在用订阅；True 只列已删除；None 列全部。"""
         with self._lock:
             sql = "SELECT * FROM subscriptions"
+            conditions = []
+            if deleted is True:
+                conditions.append("deleted_at > 0")
+            elif deleted is False:
+                conditions.append("deleted_at = 0")
             if enabled_only:
-                sql += " WHERE enabled=1"
+                conditions.append("enabled = 1")
+            if conditions:
+                sql += " WHERE " + " AND ".join(conditions)
             sql += " ORDER BY id"
-            return [self._sub_dict(r) for r in self.conn.execute(sql).fetchall()]
+            return [dict(r) for r in self.conn.execute(sql).fetchall()]
 
     def sub_get(self, sub_id: int):
         with self._lock:
@@ -127,6 +147,64 @@ class Store:
         with self._lock:
             self.conn.execute(
                 "UPDATE subscriptions SET title=? WHERE id=?", (title, sub_id)
+            )
+            self.conn.commit()
+
+    def sub_soft_delete(self, sub_id: int):
+        """软删除：订阅移入「已删除」，集数追踪保留，可恢复。"""
+        with self._lock:
+            self.conn.execute(
+                "UPDATE subscriptions SET deleted_at=?, enabled=0 WHERE id=?",
+                (time.time(), sub_id),
+            )
+            self.conn.commit()
+
+    def sub_restore(self, sub_id: int):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE subscriptions SET deleted_at=0, enabled=1 WHERE id=?", (sub_id,)
+            )
+            self.conn.commit()
+
+    def sub_purge(self, sub_id: int):
+        """彻底删除（连同其集数追踪记录）。"""
+        with self._lock:
+            self.conn.execute("DELETE FROM sub_episodes WHERE sub_id=?", (sub_id,))
+            self.conn.execute("DELETE FROM subscriptions WHERE id=?", (sub_id,))
+            self.conn.commit()
+
+    # ---- 订阅集数追踪（下载完成才算「已见」，中途丢失会自动补拉） ----
+
+    def episode_add(self, sub_id: int, guid: str, sha: str, title: str = ""):
+        with self._lock:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO sub_episodes(sub_id, guid, sha, title, state, added_at) "
+                "VALUES (?,?,?,?, 'added', ?)",
+                (sub_id, guid, sha, title, time.time()),
+            )
+            self.conn.commit()
+
+    def episode_exists(self, guid: str) -> bool:
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT 1 FROM sub_episodes WHERE guid=?", (guid,)
+            ).fetchone()
+            return row is not None
+
+    def episode_pending(self, sub_id: int):
+        with self._lock:
+            return [
+                dict(r)
+                for r in self.conn.execute(
+                    "SELECT * FROM sub_episodes WHERE sub_id=? AND state='added'", (sub_id,)
+                ).fetchall()
+            ]
+
+    def episode_mark_done(self, guid: str):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE sub_episodes SET state='done', done_at=? WHERE guid=?",
+                (time.time(), guid),
             )
             self.conn.commit()
 

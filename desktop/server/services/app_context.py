@@ -72,6 +72,7 @@ def build_context(cfg: dict, config_path: str | None = None) -> AppContext:
         user_agent=cfg["mikan"].get("user_agent") or None,
     )
     mikan = MikanClient(http)
+    torrent_dir = str(desktop_cfg.get("torrent_dir", "data/torrents"))
     ctx = AppContext(
         cfg=cfg,
         engine=engine,
@@ -83,8 +84,11 @@ def build_context(cfg: dict, config_path: str | None = None) -> AppContext:
         default_save_path=str(desktop_cfg.get("save_path") or ""),
         mikan=mikan,
     )
-    ctx.subs = SubscriptionService(store, guard, mikan, save_path_provider=lambda: ctx.default_save_path)
-    scheduler.mikan_job = ctx.subs.check_all
+    ctx.subs = SubscriptionService(
+        store, guard, mikan, save_path_provider=lambda: ctx.default_save_path,
+        torrent_dir=torrent_dir,
+    )
+    scheduler.mikan_job = ctx.subs.periodic
     return ctx
 
 

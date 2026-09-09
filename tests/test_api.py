@@ -40,7 +40,8 @@ class ApiTestBase(unittest.TestCase):
             mikan=self.mikan,
         )
         self.ctx.subs = SubscriptionService(
-            guard.store, guard, self.mikan, lambda: self.ctx.default_save_path
+            guard.store, guard, self.mikan, lambda: self.ctx.default_save_path,
+            torrent_dir=f"{self.tmp}/torrents",
         )
         self.engine = engine
         self.client = TestClient(create_app(self.ctx))
@@ -184,9 +185,20 @@ class SubscriptionsApiTest(ApiTestBase):
         ).json()
         self.assertEqual(toggled["enabled"], 0)
 
-        self.client.delete(f"/api/subscriptions/{sub_id}")
-        self.assertEqual(self.client.get("/api/subscriptions").json()["subscriptions"], [])
+        self.client.delete(f"/api/subscriptions/{sub_id}")  # 软删除
+        data = self.client.get("/api/subscriptions").json()
+        self.assertEqual(data["subscriptions"], [])
+        self.assertEqual(len(data["deleted"]), 1)
         self.assertEqual(self.client.post(f"/api/subscriptions/{sub_id}/check").status_code, 404)
+
+        restored = self.client.post(f"/api/subscriptions/{sub_id}/restore").json()
+        self.assertEqual(restored["deleted_at"], 0)
+        self.assertEqual(len(self.client.get("/api/subscriptions").json()["subscriptions"]), 1)
+
+        self.client.delete(f"/api/subscriptions/{sub_id}?purge=true")  # 彻底删除
+        data = self.client.get("/api/subscriptions").json()
+        self.assertEqual(data["deleted"], [])
+        self.assertIsNone(self.ctx.store.sub_get(sub_id))
 
     def test_check_all_endpoint(self):
         self.client.post("/api/subscriptions", json={"rss_url": self.URL})

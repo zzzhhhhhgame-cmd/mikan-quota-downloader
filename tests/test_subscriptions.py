@@ -8,6 +8,7 @@ from mqd.quota import DailyQuota
 from mqd.session import CloudflareBlocked
 from mqd.store import Store
 
+from server.engine.base import TaskState
 from server.services.quota_guard import QuotaGuard
 from server.services.subscription_service import SubscriptionError, SubscriptionService
 
@@ -26,7 +27,11 @@ class SubscriptionServiceTest(unittest.TestCase):
         self.store = Store(f"{tmp.name}/state.db")
         self.guard = QuotaGuard(self.engine, self.store, download_quota=DailyQuota(100), seed_limit_bytes=100)
         self.mikan = FakeMikan()
-        self.subs = SubscriptionService(self.store, self.guard, self.mikan, lambda: self.paths["default"])
+        self.subs = SubscriptionService(
+            self.store, self.guard, self.mikan,
+            save_path_provider=lambda: self.paths["default"],
+            torrent_dir=f"{tmp.name}/torrents",
+        )
 
     def test_add_downloads_immediately(self):
         self.mikan.set_feed(URL, "某番", [make_episode("g1", "第1集", 1.0), make_episode("g2", "第2集", 2.0)])
@@ -103,13 +108,54 @@ class SubscriptionServiceTest(unittest.TestCase):
         with self.assertRaises(SubscriptionError):
             self.subs.add("不是链接")
 
-    def test_toggle_and_delete(self):
+    def test_toggle_and_soft_delete(self):
         self.mikan.set_feed(URL, "某番", [])
         sub_id = self.subs.add(URL)["id"]
         self.store.sub_set_enabled(sub_id, False)
         self.assertEqual(self.store.sub_list(enabled_only=True), [])
-        self.store.sub_delete(sub_id)
+        self.subs.delete(sub_id)  # 软删除
         self.assertEqual(self.store.sub_list(), [])
+        self.assertEqual(len(self.store.sub_list(deleted=True)), 1)
+        self.subs.restore(sub_id)
+        self.assertEqual(len(self.store.sub_list()), 1)
+
+    def test_episode_tracked_until_done(self):
+        """集数在下载完成前不算「已见」；完成后才写入 seen 永久去重。"""
+        self.mikan.set_feed(URL, "某番", [make_episode("g1", published=1.0)])
+        self.mikan.sizes = {"g1": 60}
+        summary = self.subs.add(URL)
+        self.assertEqual(summary["started"], 1)
+        self.assertFalse(self.store.seen("g1"))  # 未完成，不算已见
+        pending = self.store.episode_pending(summary["id"])
+        self.assertEqual(len(pending), 1)
+        sha = pending[0]["sha"]
+        # 任务完成（做种中）→ reconcile 标记 done
+        self.engine._set(sha, state=TaskState.SEEDING, done=60)
+        self.subs.reconcile(self.store.sub_get(summary["id"]))
+        self.assertTrue(self.store.seen("g1"))
+        self.assertEqual(self.store.episode_pending(summary["id"]), [])
+
+    def test_reconcile_readds_lost_task_from_archive(self):
+        """任务在引擎里丢失（手动删除/重启）→ 从本地 .torrent 存档自动重新入队。"""
+        self.mikan.set_feed(URL, "某番", [make_episode("g1", published=1.0)])
+        self.mikan.sizes = {"g1": 60}
+        sub_id = self.subs.add(URL)["id"]
+        sha = self.store.episode_pending(sub_id)[0]["sha"]
+        self.engine.remove(sha)  # 模拟任务丢失
+        self.assertEqual(len(self.engine.list()), 0)
+        readded = self.subs.reconcile(self.store.sub_get(sub_id))
+        self.assertEqual(readded, 1)
+        self.assertEqual(len(self.engine.list()), 1)
+        self.assertEqual(self.engine.list()[0].sha, sha)  # 相同 infohash，续传既有文件
+        # 再跑一次不应重复入队
+        self.assertEqual(self.subs.reconcile(self.store.sub_get(sub_id)), 0)
+        self.assertEqual(len(self.engine.list()), 1)
+
+    def test_purge_removes_tracking(self):
+        self.mikan.set_feed(URL, "某番", [])
+        sub_id = self.subs.add(URL)["id"]
+        self.store.sub_purge(sub_id)
+        self.assertIsNone(self.store.sub_get(sub_id))
 
     def test_disabled_subscription_skipped_in_check_all(self):
         self.mikan.set_feed(URL, "某番", [make_episode("g1", published=1.0)])
