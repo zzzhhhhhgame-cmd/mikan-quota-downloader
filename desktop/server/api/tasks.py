@@ -57,6 +57,31 @@ async def add_task(request: Request, save_path: str = "", sequential: bool = Fal
     }
 
 
+@router.post("/tasks/add-magnet")
+def add_magnet_task(request: Request, payload: dict):
+    """手动添加磁力链接（无需 .torrent 文件），同样受每日下载限额约束。
+
+    磁链的体积在元数据到达后才可知：先以运行状态添加以获取元数据（流量极小），
+    QuotaGuard 在体积已知后补充限额判定——超出预算会自动暂停进入等待队列。
+    """
+    ctx = request.app.state.ctx
+    uri = (payload.get("magnet") or "").strip()
+    if not uri.lower().startswith("magnet:?"):
+        raise HTTPException(422, "请粘贴以 magnet:?xt=urn:btih: 开头的磁力链接")
+    target = (payload.get("save_path") or "").strip() or ctx.default_save_path
+    if not target:
+        raise HTTPException(422, "未指定下载目录：请先在设置中保存默认下载目录，或随请求指定 save_path")
+    try:
+        sha = ctx.engine.add_magnet(
+            uri, paused=False, save_path=target, sequential=bool(payload.get("sequential"))
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    except EngineError as exc:
+        raise HTTPException(503, f"引擎添加失败：{exc}")
+    return {"sha": sha, "save_path": target, "sequential": bool(payload.get("sequential"))}
+
+
 @router.post("/tasks/{sha}/pause")
 def pause_task(sha: str, request: Request):
     ctx = request.app.state.ctx

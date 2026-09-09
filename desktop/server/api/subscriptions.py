@@ -45,6 +45,16 @@ def check_subscription(sub_id: int, request: Request):
         raise HTTPException(404, str(exc))
 
 
+@router.post("/{sub_id}/rename")
+def rename_subscription(sub_id: int, request: Request, payload: dict):
+    ctx = request.app.state.ctx
+    try:
+        return ctx.subs.rename(sub_id, payload.get("title") or "")
+    except SubscriptionError as exc:
+        status = 404 if "不存在" in str(exc) else 422
+        raise HTTPException(status, str(exc))
+
+
 @router.post("/{sub_id}/toggle")
 def toggle_subscription(sub_id: int, request: Request, payload: dict):
     ctx = request.app.state.ctx

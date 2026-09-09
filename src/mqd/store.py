@@ -123,6 +123,13 @@ class Store:
             self.conn.execute("DELETE FROM subscriptions WHERE id=?", (sub_id,))
             self.conn.commit()
 
+    def sub_rename(self, sub_id: int, title: str):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE subscriptions SET title=? WHERE id=?", (title, sub_id)
+            )
+            self.conn.commit()
+
     def sub_set_enabled(self, sub_id: int, enabled: bool):
         with self._lock:
             self.conn.execute(

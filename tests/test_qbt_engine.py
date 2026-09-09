@@ -108,7 +108,8 @@ class QbtEngineTest(unittest.TestCase):
             ("stoppedDL", TaskState.PAUSED),
             ("downloading", TaskState.DOWNLOADING),
             ("metaDL", TaskState.DOWNLOADING),
-            ("uploading", TaskState.COMPLETED),
+            ("uploading", TaskState.SEEDING),
+            ("stalledUP", TaskState.SEEDING),
             ("pausedUP", TaskState.COMPLETED),
             ("error", TaskState.FAILED),
         ]:
@@ -144,6 +145,25 @@ class QbtEngineTest(unittest.TestCase):
     def test_remove_unknown_task_raises(self):
         with self.assertRaises(EngineError):
             self.engine.remove("deadbeef")
+
+    def test_add_magnet_posts_urls(self):
+        from mqd.torrents import infohash_from_bytes as ifh
+
+        sha = ifh(TORRENT)
+        uri = f"magnet:?xt=urn:btih:{sha}&tr=http%3a%2f%2ft.example%2fannounce"
+        got = self.engine.add_magnet(uri, paused=False, save_path="/dl")
+        self.assertEqual(got, sha)
+        posts = [raw for path, raw in self.captured["requests"] if path == "/api/v2/torrents/add"]
+        self.assertEqual(len(posts), 1)
+        self.assertIn(b"magnet", posts[0])
+        self.assertIn(b"urls=magnet", posts[0])
+
+    def test_add_magnet_idempotent(self):
+        self.captured["torrents"].append({"hash": infohash_from_bytes(TORRENT), "state": "downloading"})
+        uri = f"magnet:?xt=urn:btih:{infohash_from_bytes(TORRENT)}"
+        sha = self.engine.add_magnet(uri, paused=False, save_path="/dl")
+        self.assertEqual(sha, infohash_from_bytes(TORRENT))
+        self.assertFalse(any(p.endswith("/add") for p, _ in self.captured["requests"]))
 
     def test_rate_limits(self):
         self.engine.set_download_limit(1024)

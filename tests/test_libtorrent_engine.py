@@ -55,6 +55,22 @@ class LibtorrentSmokeTest(unittest.TestCase):
             finally:
                 engine.stop()
 
+    def test_add_magnet(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = LibtorrentEngine(listen_port=0, save_path_default=tmp)
+            try:
+                sha = engine.add(TORRENT, paused=True, save_path=tmp)
+                engine.remove(sha)
+                uri = f"magnet:?xt=urn:btih:{sha}&tr=http%3a%2f%2ft.example%2fannounce"
+                got = engine.add_magnet(uri, paused=False, save_path=tmp)
+                self.assertEqual(got, sha)  # 磁链 infohash 与 .torrent 一致
+                tasks = engine.list()
+                self.assertEqual(len(tasks), 1)
+                self.assertEqual(tasks[0].sha, sha)
+                self.assertEqual(tasks[0].size, 0)  # 离线无元数据，体积未知
+            finally:
+                engine.stop()
+
     def test_conforms_to_engine_interface(self):
         with tempfile.TemporaryDirectory() as tmp:
             engine = LibtorrentEngine(listen_port=0, save_path_default=tmp)

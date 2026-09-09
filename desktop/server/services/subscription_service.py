@@ -69,6 +69,16 @@ class SubscriptionService:
         )
         return summary
 
+    def rename(self, sub_id: int, title: str) -> dict:
+        sub = self.store.sub_get(sub_id)
+        if sub is None:
+            raise SubscriptionError(f"订阅不存在: {sub_id}")
+        title = (title or "").strip()
+        if not title:
+            raise SubscriptionError("名称不能为空")
+        self.store.sub_rename(sub_id, title)
+        return self.store.sub_get(sub_id)
+
     def check_one(self, sub_id: int) -> dict:
         sub = self.store.sub_get(sub_id)
         if sub is None:

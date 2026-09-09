@@ -78,7 +78,7 @@ class QuotaGuard:
         active_remaining = sum(
             max(0, t.size - t.done)
             for t in torrents
-            if t.state not in (TaskState.COMPLETED, TaskState.FAILED)
+            if t.state not in (TaskState.COMPLETED, TaskState.FAILED, TaskState.SEEDING)
         )
         return QuotaSnapshot(
             day=day,
@@ -98,9 +98,23 @@ class QuotaGuard:
         return decision
 
     def drain(self) -> list[str]:
-        """下载预算允许时按加入先后放行等待队列（小任务可插空），返回恢复的任务 sha。"""
+        """下载预算允许时按加入先后放行等待队列（小任务可插空），返回恢复的任务 sha。
+
+        先执行「超预算强制排队」：磁力链接等元数据后置的任务在体积已知后，
+        若尚未消耗流量且体积超出剩余预算，则暂停转入等待队列（次日预算恢复后放行）。
+        """
         snap = self.snapshot()
-        active_remaining = snap.active_remaining
+        used, active_remaining = snap.used_download, snap.active_remaining
+
+        for t in list(self.engine.list()):
+            if t.state != TaskState.DOWNLOADING or t.size <= 0 or t.downloaded > 0:
+                continue  # 只约束刚起步、还没花流量的任务
+            need = max(0, t.size - t.done)
+            others = max(0, active_remaining - need)
+            if t.size > self.quota.remaining(used, others):
+                self.engine.pause(t.sha)
+                active_remaining -= need
+
         resumed = []
         waiting = sorted(
             (t for t in self.engine.list() if t.state == TaskState.PAUSED),
@@ -108,7 +122,7 @@ class QuotaGuard:
         )
         for t in waiting:
             need = max(0, t.size - t.done)
-            if need <= self.quota.remaining(snap.used_download, active_remaining):
+            if need <= self.quota.remaining(used, active_remaining):
                 self.engine.resume(t.sha)
                 active_remaining += need
                 resumed.append(t.sha)

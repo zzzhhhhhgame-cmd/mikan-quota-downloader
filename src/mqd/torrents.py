@@ -1,6 +1,9 @@
-"""零依赖 bencode 解码：从 .torrent 原始字节中取出体积与 infohash（限额判定/任务键用）。"""
+"""零依赖 bencode 解码：从 .torrent 原始字节中取出体积与 infohash（限额判定/任务键用）；
+磁力链接的 infohash 提取。"""
 
+import base64
 import hashlib
+from urllib.parse import parse_qs, urlsplit
 
 
 def _decode(data, i):
@@ -58,3 +61,17 @@ def infohash_from_bytes(raw: bytes) -> str:
     """计算种子 v1 infohash（hex），与 qBittorrent/libtorrent 一致，作为任务唯一键。"""
     start, end = info_span(raw)
     return hashlib.sha1(raw[start : end]).hexdigest()
+
+
+def magnet_infohash(uri: str) -> str:
+    """从磁力链接提取 v1 infohash（hex）。支持 40 位 hex 与 32 位 base32 两种形式。"""
+    xt = (parse_qs(urlsplit(uri.strip()).query).get("xt") or [""])[0]
+    if not xt.lower().startswith("urn:btih:"):
+        raise ValueError("磁力链接缺少 xt=urn:btih: 信息哈希")
+    value = xt[9:]
+    if len(value) == 40:
+        int(value, 16)  # 校验 hex
+        return value.lower()
+    if len(value) == 32:
+        return base64.b32decode(value.upper()).hex()
+    raise ValueError(f"无法识别的 infohash 长度: {len(value)}")

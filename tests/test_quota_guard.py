@@ -54,6 +54,27 @@ class FakeEngine(Engine):
         )
         return sha
 
+    def add_magnet(self, uri: str, *, paused: bool, save_path: str, sequential: bool = False, category: str = "") -> str:
+        from mqd.torrents import magnet_infohash
+
+        sha = magnet_infohash(uri)
+        if any(t.sha == sha for t in self.torrents):
+            return sha
+        self._seq += 1
+        self.torrents.append(
+            TorrentState(
+                sha=sha,
+                name=uri[:48],
+                state=TaskState.PAUSED if paused else TaskState.DOWNLOADING,
+                size=0,  # 磁链元数据到达前体积未知
+                save_path=save_path,
+                sequential=sequential,
+                added_at=time.time() + self._seq / 1000.0,
+                order=self._seq,
+            )
+        )
+        return sha
+
     def pause(self, sha):
         self._require(sha)
         self._set(sha, state=TaskState.PAUSED)
@@ -212,6 +233,30 @@ class QuotaGuardTest(unittest.TestCase):
         resumed, gate_closed = self.guard.sync()
         self.assertEqual(resumed, [])
         self.assertFalse(gate_closed)
+
+    def test_drain_pauses_oversized_zero_progress_task(self):
+        """磁链元数据后置：体积已知、尚未花流量且超预算 → 自动暂停转入等待队列。"""
+        self.engine.torrents.append(
+            TorrentState(sha="big", name="big", state=TaskState.DOWNLOADING, size=200, downloaded=0)
+        )
+        self.guard.drain()
+        self.assertEqual(self.engine.torrents[0].state, TaskState.PAUSED)
+
+    def test_drain_spends_started_task_alone(self):
+        """已经开始花流量的任务不强制暂停（让它跑完或由用户处理）。"""
+        self.engine.torrents.append(
+            TorrentState(sha="mid", name="mid", state=TaskState.DOWNLOADING, size=200, downloaded=30)
+        )
+        self.guard.drain()
+        self.assertEqual(self.engine.torrents[0].state, TaskState.DOWNLOADING)
+
+    def test_seeding_excluded_from_active_budget(self):
+        self.engine.torrents.append(
+            TorrentState(sha="s1", name="s1", state=TaskState.SEEDING, size=500, done=500)
+        )
+        snap = self.guard.snapshot()
+        self.assertEqual(snap.active_remaining, 0)
+        self.assertEqual(snap.remaining, 100)
 
 
 if __name__ == "__main__":

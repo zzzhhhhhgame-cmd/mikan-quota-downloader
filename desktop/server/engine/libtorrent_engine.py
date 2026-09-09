@@ -13,7 +13,7 @@ import logging
 import threading
 import time
 
-from mqd.torrents import infohash_from_bytes
+from mqd.torrents import infohash_from_bytes, magnet_infohash
 
 from .base import Engine, EngineError, TaskState, TorrentState
 
@@ -86,6 +86,23 @@ class LibtorrentEngine(Engine):
             return sha  # 幂等：重复添加直接返回已有任务
         atp = lt.add_torrent_params()
         atp.ti = ti
+        self._insert(atp, ti, sha, paused=paused, save_path=save_path, sequential=sequential)
+        return sha
+
+    def add_magnet(self, uri: str, *, paused: bool, save_path: str, sequential: bool = False, category: str = "") -> str:
+        sha = magnet_infohash(uri)
+        if any(t.sha == sha for t in self.list()):
+            return sha  # 幂等
+        try:
+            atp = lt.parse_magnet_uri(uri.strip())  # libtorrent 1.2+ / 2.x
+        except AttributeError:
+            atp = lt.add_torrent_params()
+            atp.url = uri.strip()
+        # 磁链必须处于运行状态才能获取元数据；体积已知后由 QuotaGuard 补充限额判定
+        self._insert(atp, None, sha, paused=paused, save_path=save_path, sequential=sequential)
+        return sha
+
+    def _insert(self, atp, ti, sha: str, *, paused: bool, save_path: str, sequential: bool):
         atp.save_path = save_path or self._default_save_path
         flags = atp.flags
         flags |= lt.torrent_flags.paused if paused else lt.torrent_flags.auto_managed
@@ -94,19 +111,20 @@ class LibtorrentEngine(Engine):
         atp.flags = flags
         handle = self._session.add_torrent(atp)
         sha = self._sha(handle)
+        name = ti.name() if ti is not None else (getattr(atp, "url", "") or sha)[:72]
+        size = int(ti.total_size()) if ti is not None else 0  # 磁链元数据到达前体积未知
         with self._lock:
             self._next_seq += 1
             self._states[sha] = TorrentState(
                 sha=sha,
-                name=ti.name(),
+                name=name,
                 state=TaskState.PAUSED if paused else TaskState.DOWNLOADING,
-                size=int(ti.total_size()),
+                size=size,
                 sequential=sequential,
                 save_path=atp.save_path,
                 added_at=time.time(),
                 order=self._next_seq,
             )
-        return sha
 
     def pause(self, sha: str):
         handle = self._find(sha)
@@ -191,17 +209,16 @@ class LibtorrentEngine(Engine):
             downloaded = int(st.all_time_download)
             uploaded = int(st.all_time_upload)
             rate = int(st.download_payload_rate)
+            rate_up = int(st.upload_payload_rate)
             error = self._errors.pop(sha, None)
 
             if error is not None:
                 state = TaskState.FAILED
             elif paused:
                 state = TaskState.PAUSED
-            elif (
-                st.state == lt.torrent_status.seeding
-                or st.state == lt.torrent_status.finished
-                or (size > 0 and done >= size)
-            ):
+            elif st.state == lt.torrent_status.seeding:
+                state = TaskState.SEEDING  # 做种中：正在为他人上传
+            elif st.state == lt.torrent_status.finished or (size > 0 and done >= size):
                 state = TaskState.COMPLETED
             elif st.state == lt.torrent_status.checking_files:
                 state = TaskState.CHECKING
@@ -218,6 +235,7 @@ class LibtorrentEngine(Engine):
                 downloaded=downloaded,
                 uploaded=uploaded,
                 rate_down=rate,
+                rate_up=rate_up,
                 eta=max(0, size - done) // rate if state == TaskState.DOWNLOADING and rate > 0 else None,
                 sequential=sequential,
                 save_path=st.save_path or (prev.save_path if prev else self._default_save_path),

@@ -10,11 +10,12 @@ import json
 
 import requests
 
-from mqd.torrents import infohash_from_bytes
+from mqd.torrents import infohash_from_bytes, magnet_infohash
 
 from .base import Engine, EngineError, TaskState, TorrentState
 
-_DONE_STATES = {"uploading", "pausedUP", "stoppedUP", "stalledUP", "queuedUP", "forcedUP", "checkingUP", "completed"}
+_SEEDING_STATES = {"uploading", "stalledUP", "forcedUP", "completed"}
+_DONE_STATES = {"pausedUP", "stoppedUP", "queuedUP"}
 _PAUSED_STATES = {"pausedDL", "stoppedDL"}
 _FAILED_STATES = {"error", "missingFiles"}
 _ETA_UNKNOWN = 8640000  # qBt 的 eta 未知哨兵值
@@ -77,6 +78,27 @@ class QbtWebuiEngine(Engine):
             raise EngineError(f"qBittorrent 拒绝了种子: {resp.text.strip()}")
         return sha
 
+    def add_magnet(self, uri: str, *, paused: bool, save_path: str, sequential: bool = False, category: str = "") -> str:
+        sha = magnet_infohash(uri)
+        if any(t.sha == sha for t in self.list()):
+            return sha  # 幂等
+        fields = {
+            "autoTMM": "false",
+            "category": category or self.category,
+            "urls": uri.strip(),
+            "paused": "true" if paused else "false",
+            "stopped": "true" if paused else "false",
+        }
+        if save_path:
+            fields["savepath"] = save_path
+        if sequential:
+            fields["sequentialDownload"] = "true"
+        resp = self.session.post(f"{self.base}/api/v2/torrents/add", data=fields, timeout=30)
+        resp.raise_for_status()
+        if "Ok" not in resp.text:
+            raise EngineError(f"qBittorrent 拒绝了磁力链接: {resp.text.strip()}")
+        return sha
+
     def pause(self, sha: str):
         self._post_compat("torrents/pause", "torrents/stop", sha=sha)
 
@@ -104,8 +126,10 @@ class QbtWebuiEngine(Engine):
                 state = TaskState.FAILED
             elif raw_state in _PAUSED_STATES:
                 state = TaskState.PAUSED
-            elif raw_state in _DONE_STATES or float(t.get("progress", 0)) >= 1:
-                state = TaskState.COMPLETED
+            elif raw_state in _SEEDING_STATES or float(t.get("progress", 0)) >= 1:
+                state = TaskState.SEEDING  # 做种中
+            elif raw_state in _DONE_STATES:
+                state = TaskState.COMPLETED  # 下载完成但未在 做种/上传
             else:
                 state = TaskState.DOWNLOADING
             eta = int(t.get("eta", _ETA_UNKNOWN))
@@ -119,6 +143,7 @@ class QbtWebuiEngine(Engine):
                     downloaded=int(t.get("downloaded", 0)),
                     uploaded=int(t.get("uploaded", 0)),
                     rate_down=int(t.get("dlspeed", 0)),
+                    rate_up=int(t.get("upspeed", 0)),
                     eta=eta if 0 <= eta < _ETA_UNKNOWN else None,
                     sequential=bool(t.get("seq_dl", False)),
                     save_path=str(t.get("save_path", "")),

@@ -1,9 +1,32 @@
+import base64
 import unittest
 
-from mqd.torrents import _decode, info_span, infohash_from_bytes, torrent_size
+from mqd.torrents import _decode, info_span, infohash_from_bytes, magnet_infohash, torrent_size
 
 SINGLE = b"d4:infod6:lengthi1073741824e4:name4:testee"
 MULTI = b"d4:infod5:filesld6:lengthi5eed6:lengthi7eeeee"
+HEX = "93d624da8625c710420d9f68fe312de5b97ed5d9"
+
+
+class MagnetInfohashTest(unittest.TestCase):
+    def test_hex_magnet(self):
+        uri = f"magnet:?xt=urn:btih:{HEX}&tr=http%3a%2f%2ft.example%2fannounce"
+        self.assertEqual(magnet_infohash(uri), HEX)
+
+    def test_uppercase_hex_normalized(self):
+        uri = f"magnet:?xt=urn:btih:{HEX.upper()}"
+        self.assertEqual(magnet_infohash(uri), HEX)
+
+    def test_base32_magnet(self):
+        b32 = base64.b32encode(bytes(range(20))).decode()
+        expected = bytes(range(20)).hex()
+        self.assertEqual(magnet_infohash(f"magnet:?xt=urn:btih:{b32}"), expected)
+
+    def test_missing_hash_rejected(self):
+        with self.assertRaises(ValueError):
+            magnet_infohash("magnet:?tr=http://x")
+        with self.assertRaises(ValueError):
+            magnet_infohash("magnet:?xt=urn:btih:1234")
 
 
 class InfoSpanTest(unittest.TestCase):
