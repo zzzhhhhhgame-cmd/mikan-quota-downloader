@@ -124,16 +124,6 @@ class SessionApiTest(ApiTestBase):
         self.client.delete("/api/session")
         self.assertFalse(self.ctx.sessions.status()["configured"])
 
-    def test_harvest_without_desktop_bridge_returns_501(self):
-        resp = self.client.post("/api/session/harvest")
-        self.assertEqual(resp.status_code, 501)
-
-    def test_harvest_with_bridge_callback(self):
-        self.ctx.harvest_callback = lambda: {"ok": True, "cookies": 3}
-        resp = self.client.post("/api/session/harvest")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["cookies"], 3)
-
     def test_session_file_matches_v1_format(self):
         self.ctx.sessions.save("UA/1.0", {"cookies": [{"name": "n", "value": "v"}]})
         saved = self.ctx.sessions.load()

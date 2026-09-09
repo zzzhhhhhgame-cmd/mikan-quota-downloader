@@ -59,21 +59,17 @@ input{width:110px}textarea{width:100%;min-height:60px;resize:vertical}
 
   <div class="grid">
     <div class="card">
-      <h2>站点会话</h2>
+      <h2>站点 Cookie（Cloudflare 通道 · 无需登录）</h2>
       <div id="session-status" class="mut">…</div>
-      <div class="row">
-        <button onclick="desktopLogin()">① 登录 Mikan（弹窗）</button>
-        <button onclick="harvest()">② 我已登录完成</button>
-      </div>
-      <div class="row"><button class="ghost" onclick="checkSession()">测试会话可用性</button>
-        <button class="ghost" onclick="clearSession()">清除会话</button></div>
-      <div class="hint">
-        桌面应用内走上面的向导（可过 Cloudflare）；浏览器模式下请手动复制浏览器 Cookie：
-      </div>
+      <div class="row"><button class="ghost" onclick="checkSession()">测试可用性</button>
+        <button class="ghost" onclick="clearSession()">清除</button></div>
+      <div class="hint">订阅下载通常<b>无需任何 Cookie</b>。仅当订阅/任务显示「异常：Cloudflare 拦截」时：
+      在能打开 Mikan 的浏览器按 F12 → 网络 → 刷新页面 → 点第一条请求 →
+      复制请求标头里 Cookie 的完整值，粘贴到下面导入。</div>
       <div class="row" style="align-items:flex-start">
         <textarea id="cookie-string" placeholder="cf_clearance=…; 其他=…（整段粘贴）"></textarea>
       </div>
-      <div class="row"><button class="ghost" onclick="importCookies()">导入 Cookie（兜底）</button></div>
+      <div class="row"><button class="ghost" onclick="importCookies()">导入 Cookie</button></div>
       <div class="hint" id="session-check"></div>
     </div>
 
@@ -194,7 +190,9 @@ async function saveRateLimit(){
 }
 async function refreshSession(){
   const s = await api('/api/session');
-  $('session-status').innerHTML = s.configured? '<span class="badge ok">已配置</span> <span class="mut">'+s.file+'</span>' : '<span class="badge bad">未配置</span> <span class="mut">请完成登录</span>';
+  $('session-status').innerHTML = s.configured
+    ? '<span class="badge ok">已导入</span> <span class="mut">'+s.file+'</span>'
+    : '<span class="badge">未导入</span> <span class="mut">订阅通常无需 Cookie；被 CF 拦截时再导入</span>';
 }
 async function loadSubs(){
   try{
@@ -243,15 +241,6 @@ async function saveInterval(){
     body: JSON.stringify({minutes: parseInt($('sub-interval').value)||20})});
     toast('检查间隔已保存：'+r.interval_minutes+' 分钟');
   }catch(e){ toast(e.message); }
-}
-async function desktopLogin(){
-  if(window.pywebview && window.pywebview.api){ await window.pywebview.api.open_login_window(); toast('已打开登录窗口，完成后回来点②'); }
-  else toast('当前是浏览器模式：请手动复制 Cookie 后用下方导入');
-}
-async function harvest(){
-  try{ const r = await api('/api/session/harvest', {method:'POST'});
-    toast(`会话已保存（${r.cookies} 条 Cookie）`); refreshSession(); }
-  catch(e){ toast('收割失败：'+ (window.pywebview? e.message : '请在桌面应用内使用，或手动导入 Cookie')); }
 }
 async function importCookies(){
   try{ await api('/api/session/import', {method:'POST', headers:{'Content-Type':'application/json'},

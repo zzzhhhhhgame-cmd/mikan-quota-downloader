@@ -1,7 +1,7 @@
 """会话管理：data/session.json 的存取与状态校验。
 
 文件格式与 V1 mqd.session.HttpClient 完全兼容（user_agent + playwright 风格
-storage_state），登录来源可以是桌面应用的 webview 收割、Playwright 向导或手动导入。
+storage_state）。登录向导已移除，会话来源为手动导入浏览器 Cookie（无需登录账号）。
 """
 
 from __future__ import annotations

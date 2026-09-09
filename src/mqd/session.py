@@ -11,7 +11,7 @@ CF_MARKS = ("just a moment", "challenge-platform", "cf-chl", "attention required
 
 
 class CloudflareBlocked(RuntimeError):
-    """Cloudflare 人机验证拦截：需要重新运行 python -m mqd.login 刷新会话。"""
+    """Cloudflare 人机验证拦截：需要在『站点 Cookie』卡片导入浏览器 Cookie（无需登录）。"""
 
 
 class HttpClient:
@@ -52,7 +52,7 @@ class HttpClient:
         if resp.status_code in (403, 429, 503) or any(mark in head for mark in CF_MARKS):
             raise CloudflareBlocked(
                 f"Cloudflare 拦截了请求（HTTP {resp.status_code}）。"
-                "请重新运行 python -m mqd.login 刷新会话。"
+                "请在『站点 Cookie』卡片导入浏览器 Cookie（无需登录账号）。"
             )
 
     def get(self, path_or_url):

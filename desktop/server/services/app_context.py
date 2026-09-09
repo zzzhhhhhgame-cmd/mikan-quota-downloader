@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from mqd.mikan import MikanClient
 from mqd.quota import DailyQuota, GiB
@@ -31,8 +31,6 @@ class AppContext:
     default_save_path: str = ""  # 全局默认下载目录（空=未设置）
     mikan: MikanClient | None = None  # 站点客户端（订阅轮询与种子下载共用）
     subs: SubscriptionService | None = None  # RSS 链接订阅服务
-    # app.py 注入：桌面 webview 会话收割（HTTP 端点代理调用；浏览器环境为 None）
-    harvest_callback: object | None = field(default=None)
 
     def start(self):
         self.engine.start()

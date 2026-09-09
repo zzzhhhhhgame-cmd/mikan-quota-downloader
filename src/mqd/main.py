@@ -88,7 +88,7 @@ def run_once(cfg):
                 active_remaining += size
             log.info("%s: %s（%s）", "开始下载" if decision.start else "排队", ep.title, decision.reason)
         except CloudflareBlocked:
-            log.error("会话被 Cloudflare 拦截，本轮终止；请运行 python -m mqd.login")
+            log.error("会话被 Cloudflare 拦截，本轮终止；请在应用『站点 Cookie』卡片导入浏览器 Cookie")
             return
         except Exception:
             log.exception("处理条目失败，跳过: %s", ep.title)

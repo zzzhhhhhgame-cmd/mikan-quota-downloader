@@ -67,20 +67,24 @@
 ## 6. Cloudflare 会话方案
 
 **关键约束：** 过盾得到的 `cf_clearance` Cookie 绑定 **IP + User-Agent**，且有时效。
-因此脚本必须固定 UA、在固定网络环境运行；失效后重新跑一次登录命令即可。
+因此脚本必须固定 UA、在固定网络环境运行；失效后重新导入一次 Cookie 即可（见下方更新）。
 
 | 方案 | 成本 | 可靠性 | 角色 |
 |---|---|---|---|
-| A. Playwright 打开真浏览器，人工登录+过盾一次，保存 storage_state | 低 | 高（你的指纹+你的 IP 亲手过盾） | **主路线**（对应你说的「提供初次登录」） |
+| A. Playwright 打开真浏览器，人工登录+过盾一次，保存 storage_state | 低 | 高（你的指纹+你的 IP 亲手过盾） | ~~主路线~~ **已移除（2026-09-09）**：CF 人机验证无法通过 |
 | B. FlareSolverr 自动过盾 | 中（需常驻服务） | 中（CF 对抗升级时失效） | 兜底，暂不实现 |
-| C. 手动从浏览器导出 Cookie 字符串填入配置 | 低 | 低（易过期、易漏字段） | 配置里保留为应急通道（你提到的「不推荐」方式） |
+| C. 手动从浏览器导出 Cookie 字符串填入配置 | 低 | 低（易过期、易漏字段） | **唯一会话通道**（2026-09-09 起，无需登录账号） |
+
+> **2026-09-09 更新：** 登录向导（方案 A）与 Playwright 工具已整体移除——实测 CF
+> 人机验证无法通过；且 RSS 订阅/下载**不需要任何会话**（Chrome 指纹可直连镜像 RSS），
+> 方案 C 仅在被拦时使用。
 
 **流程：**
 
-1. `python -m mqd.login` → 弹出真浏览器窗口 → 你登录账号 + 完成 Cloudflare 验证 → 回车；
-2. 工具保存 `data/session.json`（cookies + 浏览器 UA）；
-3. 日常轮询用 curl-cffi 伪装 Chrome 指纹 + 该会话直接访问；被拦时（HTTP 403/503 或
-   challenge 页面特征）抛出明确错误并提示重新跑步骤 1。
+1. 正常情况：不带会话，curl-cffi 伪装 Chrome 指纹直接访问（实测可拉取 RSS 与种子）；
+2. 被拦时：在能打开站点的浏览器按 F12 复制整行 Cookie → 粘贴到桌面应用「站点 Cookie」
+   卡片（或填入 `config.yaml` 的 `mikan.cookie_string`），存 `data/session.json`；
+3. 后续轮询自动携带；再次被拦则重新导入一次。
 
 ## 7. 总体架构
 
@@ -108,7 +112,6 @@
 - `qbittorrent.py`：WebUI API v2 封装（登录、添加、恢复、列表，兼容 4.x/5.x）；
 - `quota.py` + `store.py`：30GB 日限额判定 + SQLite 去重与按日流量记账；
 - `main.py` / `__main__.py`：单轮检查逻辑与常驻循环（`--once` 供计划任务调用）；
-- `login.py`：Playwright 首次登录工具（生成会话文件）。
 
 ## 8. 核心流程
 
@@ -118,7 +121,7 @@
 2. `pip install -r requirements.txt`；
 3. 复制 `config.example.yaml` → `config.yaml`，粘贴你的「我的订阅」RSS 链接
    （登录网站 → 订阅页右侧 RSS 图标 → 复制含 `token=` 的完整链接）；
-4. `python -m mqd.login` 完成首次登录与过盾；
+4. 如被 Cloudflare 拦截：在桌面应用「站点 Cookie」卡片导入浏览器 Cookie（无需登录账号）；
 5. `python -m mqd --once` 试跑一轮，确认日志无 Cloudflare 拦截、种子正常入队。
 
 ### 8.2 每轮自动检查（每 20 分钟）
@@ -197,7 +200,7 @@
 
 | 风险 | 影响 | 对策 |
 |---|---|---|
-| Cloudflare 策略升级，会话失效更快 | 检查失败 | 拦截识别 + 明确报错提示重跑登录；必要时引入 FlareSolverr（M4 备选） |
+| Cloudflare 策略升级，会话失效更快 | 检查失败 | 拦截识别 + 明确报错提示导入 Cookie（无需登录）；必要时引入 FlareSolverr（备选） |
 | `cf_clearance` 与 IP/UA 绑定 | 换网络后失效 | 固定家庭网络运行；配置记录 UA；换网后重跑 `login` |
 | 站点登录表单加 Turnstile 导致脚本无法账密登录 | 首登失败 | 本方案本就依赖真浏览器登录，不受影响 |
 | Mikan 页面结构变化 | 提取下载链接失败 | 链接提取规则集中在 `mikan.py` 单点维护；RSS 结构由 feedparser 兜底 |
@@ -216,7 +219,6 @@ mikan-quota-downloader/
 ├── src/mqd/
 │   ├── __main__.py       # 入口：python -m mqd [--once]
 │   ├── main.py           # 单轮检查：RSS→种子→限额→qBt
-│   ├── login.py          # 首次登录：python -m mqd.login
 │   ├── session.py        # 会话与 CF 拦截识别
 │   ├── mikan.py          # 订阅 RSS 解析 + 种子下载
 │   ├── torrents.py       # bencode 解码取种子体积

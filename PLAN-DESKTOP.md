@@ -24,7 +24,7 @@ V2 要做的是一个**以追番为中心**的桌面应用：
 |---|---|---|
 | FR1 | 单一应用 | 一个窗口完成：订阅 → 追更 → 下载 → 看结果；无需再开 qBt |
 | FR2 | 应用内订阅 | ✅ **RSS 链接直接订阅已交付**：粘贴任意 Mikan RSS（如 `/RSS/Bangumi?bangumiId=…&subgroupid=…`）即下载全量集数并定时检查更新，**无需登录账号**；剩余：番剧页注入「订阅」按钮、账号聚合 RSS 路线 |
-| FR3 | 会话管理 | 应用内完成首次登录与过盾；会话过期在 UI 上提示并引导重新登录 |
+| FR3 | 会话管理 | ~~应用内登录向导~~ **已移除（2026-09-09）**：CF 人机验证无法通过且订阅/下载实测无需会话；被拦时手动导入浏览器 Cookie（无需登录） |
 | FR4 | 下载引擎 | 使用 qBittorrent 同款内核 **libtorrent**，进程内嵌，不再依赖 qBt 安装 |
 | FR5 | 限额排队 | **下载量、做种/上传量双日限额，上限均可自定义**（测试期均 1GB/日）；UI 显示今日用量、排队原因、预计恢复时间 |
 | FR6 | 任务控制 | 暂停/恢复/删除/优先级/**边下边看**（顺序下载）/打开目录 |
@@ -62,7 +62,7 @@ qBittorrent 本身只是 Qt 壳，真正的下载内核是 **libtorrent**（C++ 
 |---|---|---|
 | 语言 | **全栈 Python** | V1 业务模块（会话/订阅解析/限额/记账）约 70% 直接复用，单语言 lowest risk |
 | 下载内核 | **libtorrent-python**（qBt 同款内核，Rakshasa/arvid 编写，qBt 即基于它） | 满足"基于 qBittorrent 内核"的本意 |
-| 桌面窗口 | **pywebview**（macOS 用 WKWebView，Windows 用 WebView2，系统自带组件） | 原生窗口 + 现代 Web UI；支持 `get_cookies()` 收割登录会话（见 6.2） |
+| 桌面窗口 | **pywebview**（macOS 用 WKWebView，Windows 用 WebView2，系统自带组件） | 原生窗口 + 现代 Web UI（get_cookies() 收割已随登录向导移除） |
 | 本地服务 | **FastAPI + uvicorn**（127.0.0.1 随机端口） | REST + SSE；前端静态资源由它托管 |
 | 前端 | **Vue 3 + Vite + Naive UI + Tailwind** | 海报墙、仪表盘类 UI 用 Web 技术开发效率与观感最好 |
 | 打包 | **PyInstaller**（前端产物随包内置） | 双平台出 `.app` / `.exe` |
@@ -77,14 +77,14 @@ Electron（体积 ~150MB、且需解决 libtorrent 的 Node 绑定问题）—�
 │                                                                             │
 │  pywebview 原生窗口（WKWebView / WebView2）                                  │
 │    ├── 应用 UI（Vue3：番剧库 / 详情 / 任务 / 看板 / 设置）                     │
-│    └── 内嵌站点视图（mikan.tangbai.cc + 注入「订阅」按钮）——登录向导也在这完成  │
+│    └── 内嵌站点视图（mikan.tangbai.cc + 注入「订阅」按钮，M3+）——登录向导已移除  │
 │                  │ REST / SSE (localhost)                                   │
 │  FastAPI 本地服务（后台线程）                                                 │
 │    ├── /api/subscriptions  订阅 CRUD、封面、更新状态                          │
 │    ├── /api/episodes       集数列表、状态、手动重试/优先                      │
 │    ├── /api/tasks          引擎任务：进度/速度/暂停/恢复/删除/顺序下载          │
 │    ├── /api/quota          今日用量、近 7 日、排队原因                         │
-│    ├── /api/session        会话状态、触发登录向导                              │
+│    ├── /api/session        Cookie 导入/状态/清除（Cloudflare 兜底，无需登录）       │
 │    └── /api/events         SSE 实时推送（进度/告警/限额事件）                   │
 │                  │                                                           │
 │  业务层（V1 复用）                                                            │
@@ -104,13 +104,13 @@ Electron（体积 ~150MB、且需解决 libtorrent 的 Node 绑定问题）—�
 
 | V1 模块 | V2 去向 |
 |---|---|
-| `session.py`（CF 会话、curl-cffi） | **原样复用**；登录来源改为"应用内 webview 收割"（见 6.2） |
+| `session.py`（CF 会话、curl-cffi） | **原样复用**；会话来源改为手动 Cookie 导入（见 6.2） |
 | `mikan.py`（RSS 解析、种子抓取） | **原样复用**；新增番剧页/搜索页解析（订阅管理用） |
 | `quota.py` + `store.py`（30GB 算法、记账、去重） | **原样复用**；ledger 的 `downloaded` 改从引擎状态取（字段同义） |
 | `torrents.py`（bencode 体积） | **原样复用** |
 | `qbittorrent.py` | 改造为 `QbtWebuiEngine`（后备实现） |
 | `main.py` 轮询逻辑 | 决策部分并入 `QuotaGuard` + `MonitorScheduler`（事件驱动化） |
-| `login.py`（Playwright） | 保留为兜底登录方式；主方式见 6.2 |
+| `login.py`（Playwright） | ❌ 已移除（2026-09-09）：CF 无法通过，会话改走手动 Cookie 导入（`/api/session/import`） |
 
 ## 6. 关键设计
 
@@ -131,15 +131,18 @@ class Engine(Protocol):
 - `QbtWebuiEngine`：同一接口映射到 Web API，仅在 libtorrent 打包失败的平台或
   用户显式选择时启用。
 
-### 6.2 会话与首次登录（体验重点）
+### 6.2 站点会话（已降级为 Cookie 导入通道）
 
-1. 设置页点「登录 Mikan」→ 应用窗口切到**内嵌站点视图**打开登录页；
-2. 用户在应用内完成账号登录 + Cloudflare 人机验证（真实浏览器环境，成功率同人工）;
-3. 完成后点「我登录好了」，应用调 `webview.get_cookies()` 收割会话（含 `cf_clearance`）
-   与当前 UA，存 `data/session.json`，curl-cffi 侧复用（UA 必须一致）；
-4. 后台请求被 CF 拦截时（V1 已有识别逻辑）→ UI 顶部横幅提示「会话过期」→ 一键重走向导；
-5. 兜底：Windows 端若 `get_cookies()` 在目标 WebView2 版本不可用（M2 验证项），
-   回退 Playwright 独立窗口登录（V1 `login.py`）或手动粘贴 Cookie。
+> **2026-09-09：登录向导已整体移除。** 实测 Cloudflare 人机验证无法通过，且订阅/下载
+> **不需要任何会话**（curl-cffi 的 Chrome 指纹可直连镜像 RSS，已实测）。
+
+现行策略：
+
+1. 日常：不带会话直接访问；
+2. 被拦时（HTTP 403/503 或 challenge 页面特征）：界面提示到「站点 Cookie」卡片手动
+   粘贴浏览器 Cookie（**无需登录账号**，浏览器能打开站点即可复制），存
+   `data/session.json`，curl-cffi 侧复用；
+3. webview 收割（`get_cookies()`）与 Playwright 登录工具（V1 `login.py`）均已随向导移除。
 
 ### 6.3 订阅管理（RSS 链接路线已交付；注入按钮与账号路线随后）
 
@@ -231,7 +234,7 @@ Mikan 网页/API 会话不受影响（仍走系统默认路由，需要代理时
 | 番剧详情 | 集数列表（状态标签：已完成/下载中/排队/失败）、集数级操作（优先、重试、边下边看） |
 | 任务 | 引擎任务表：速度、ETA、做种状态、全局限速滑块、**手动添加种子（可指定本次下载目录、边下边看）**；失败原因内联展示 |
 | 数据看板 | 今日下载/上传双仪表盘、近 7 日柱状图、每番消耗排行、限额触达记录 |
-| 设置 | 站点会话（登录向导）、**下载/做种双限额上限、重置时刻**、保存目录、**BT 网卡绑定（直连/跟随系统路由）**、引擎选择（内嵌/qBt 后备）、通知开关 |
+| 设置 | **站点 Cookie 导入（无需登录）**、**下载/做种双限额上限、重置时刻**、保存目录、**BT 网卡绑定（直连/跟随系统路由）**、引擎选择（内嵌/qBt 后备）、通知开关 |
 
 视觉基调：深色为主 + 海报色彩自适应强调色；中文字体优先；所有排队/失败**给出原因**。
 
@@ -250,7 +253,7 @@ Mikan 网页/API 会话不受影响（仍走系统默认路由，需要代理时
 | 阶段 | 内容 | 交付判据 |
 |---|---|---|
 | M1 | 引擎层：`LibtorrentEngine` + `QbtWebuiEngine` + 接口单测；限额层接入引擎计数 | ✅ 已交付（2026-09-08）：`desktop/server/engine/`、`services/quota_guard.py`，全绿；同日按新需求扩展**双限额（下载/做种，1GB 测试值）与网卡绑定直连** |
-| M2 | 本地服务 + pywebview 空壳 + 登录向导（webview 收割会话） | ✅ 代码交付（2026-09-09）：FastAPI 服务（system/session/quota/tasks，55 项单测全绿）+ 桌面壳（`desktop/app.py`，pywebview/浏览器双模式，含引擎不可达优雅降级）+ 登录向导收割桥 + 最小可用 UI；**窗口登录流程待真机验收**（本机 Python 3.9 无法安装 pyobjc，需 3.10+ 或打包期解决） |
+| M2 | 本地服务 + pywebview 空壳 + 登录向导（webview 收割会话） | ✅ 代码交付（2026-09-09）：FastAPI 服务 + 桌面壳（pywebview/浏览器双模式，含引擎不可达优雅降级）+ 最小可用 UI；**登录向导已按 09-09 决策移除**（Cookie 导入保留为兜底通道） |
 | M3 | 前端骨架（Vue3）+ 追番库/详情页 + 订阅管理（注入按钮→入库） | ▶️ **RSS 链接订阅已提前交付**（2026-09-08）：订阅表/服务/定时轮询/去重 + 过渡版 UI，84 项单测全绿；剩余：Vue 正式前端、番剧页注入订阅、账号聚合路线 |
 | M4 | 任务页 + 看板页 + SSE 实时刷新 + **下载/做种双限额可视化** | 限额打满时 UI 正确展示排队与次日恢复、上传闸门状态 |
 | M5 | 打包（双平台）+ 边下边看 + 系统通知 + 设置页落地（**双限额、网卡绑定**） | 免开发环境的双平台包各一份，真机验收 |
@@ -263,7 +266,7 @@ Mikan 网页/API 会话不受影响（仍走系统默认路由，需要代理时
 | 风险 | 影响 | 对策 |
 |---|---|---|
 | libtorrent 在 macOS 无官方 PyPI 轮子 | 打包受阻 | ✅ 已验证 brew 路线：`brew install libtorrent-rasterbar`（绑定 python3.14，2026-09-08 实机通过）；打包期改为捆绑 dylib/绑定；极端情况切 `QbtWebuiEngine`（引擎抽象已隔离风险） |
-| Windows WebView2 `get_cookies()` 兼容性 | 登录向导降级 | M2 首项验证；兜底 Playwright 登录（V1 已有）与手动 Cookie |
+| Windows WebView2 `get_cookies()` 兼容性 | 登录向导降级 | ✅ 已随登录向导移除（2026-09-09），Cookie 手动导入不受影响 |
 | libtorrent 2.x mmap 对磁盘占用/兼容的行为差异 | 文件预占空间 | 默认 `enable_memmap=false` 行为配置（1.2 语义），集数完成后再全量校验 |
 | BT 直连后部分 tracker/peer 不可达（所在网络必须经代理出网） | 下载/做种变慢或失败 | 设置页「跟随系统路由」一键回退（清空网卡绑定）；Mikan 会话流量不受影响 |
 | PyInstaller 体积与启动速度 | 体验 | 排除无关模块、前端产物压缩；预期 <120MB，可接受 |
@@ -299,7 +302,7 @@ mikan-quota-downloader/
 | 网络策略（2026-09-08 补充） | **BT 下载与做种流量不经过 VPN**：引擎绑定物理网卡（libtorrent `listen/outgoing_interfaces`；qBt `setPreferences` 接口绑定）；Mikan 网页/API 会话不受影响 |
 | 下载目录（2026-09-09 补充） | **指定下载地址**：全局默认目录设置页可改、自动建目录、回写 config.yaml（`ConfigStore` 只回写实际加载的配置文件）；手动添加任务可按次覆盖；未设置时添加任务明确报错 |
 | 订阅路线（2026-09-08 补充） | 用户无法通过 CF 登录 → 新增 **RSS 链接订阅**：粘贴 `/RSS/Bangumi` 链接即可下载并定时检查更新，**无需账号登录**；实测 Chrome 指纹可直连镜像 RSS，被拦时以「导入 Cookie（无需登录）」兜底 |
+| 移除登录（2026-09-09 决策） | **登录向导整体移除**（应用桥接、`/api/session/harvest` 端点、V1 `login.py`、playwright 依赖注释）：CF 人机验证无法通过且订阅实测无需会话；「站点 Cookie」手动导入保留为唯一兜底通道 |
 
-当前进度：M2 已交付并实机冒烟；M3 的 RSS 订阅部分提前交付（订阅表/服务/定时轮询/
-去重 + 过渡版 UI，84 项单测全绿，真实 RSS 实测可达）。下一步：Vue 正式前端 + 番剧页
-注入订阅；M2 的窗口登录流程仍待用户在能过盾时验收。
+当前进度：M2 已交付并实机冒烟；M3 的 RSS 订阅部分已交付并经用户实测跑通（真实订阅 +
+正常下载）；登录功能已按用户决策移除。剩余：Vue 正式前端 + 番剧页注入订阅。

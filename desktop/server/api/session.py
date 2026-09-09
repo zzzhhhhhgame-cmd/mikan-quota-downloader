@@ -1,4 +1,8 @@
-"""站点会话：状态查询、手动导入（兜底）、桌面登录向导收割的 HTTP 入口。"""
+"""站点会话：手动导入浏览器 Cookie（Cloudflare 兜底通道，无需登录账号）、状态查询与清除。
+
+订阅下载通常不需要任何会话（实测 Chrome 指纹可直连镜像 RSS）；仅当请求被
+Cloudflare 拦截时才需要导入。会话文件与 V1 mqd.session.HttpClient 完全兼容。
+"""
 
 from __future__ import annotations
 
@@ -18,7 +22,7 @@ def session_status(request: Request, check: bool = False):
 
 @router.post("/import")
 def import_cookies(request: Request, payload: dict):
-    """兜底通道：手动粘贴浏览器 Cookie 串。"""
+    """导入浏览器 Cookie 串（k=v; k2=v2），被 CF 拦截时的兜底通道。"""
     ctx = request.app.state.ctx
     cookie_string = (payload.get("cookie_string") or "").strip()
     if not cookie_string:
@@ -26,17 +30,6 @@ def import_cookies(request: Request, payload: dict):
     return ctx.sessions.import_cookie_string(
         cookie_string, user_agent=payload.get("user_agent") or ""
     )
-
-
-@router.post("/harvest")
-def harvest(request: Request):
-    """触发桌面登录向导的会话收割（仅桌面应用内可用；浏览器返回 501 提示）。"""
-    ctx = request.app.state.ctx
-    if ctx.harvest_callback is None:
-        raise HTTPException(
-            501, "当前运行在浏览器模式；请通过桌面应用使用登录向导，或改用 /api/session/import"
-        )
-    return ctx.harvest_callback()
 
 
 @router.delete("")
