@@ -82,8 +82,6 @@ tr:last-child td{border-bottom:0}
     <a data-page="home" class="active">主页</a>
     <a data-page="subs">订阅</a>
     <a data-page="add">下载</a>
-    <a data-page="tasks">下载任务</a>
-    <a data-page="ratelimit">全局限速</a>
   </nav>
   <div class="side-bottom">
     <a data-page="settings">⚙ 设置</a>
@@ -92,10 +90,10 @@ tr:last-child td{border-bottom:0}
 
 <main class="main">
 
-  <!-- 主页：今日限额 + 任务概览 -->
+  <!-- 主页：今日限额 + 下载任务 -->
   <div class="page" id="page-home">
     <div class="card" style="margin-top:0">
-      <h2>今日限额 <span class="mut" style="font-weight:400;font-size:13px">自然日 0 点重置 · 上限在「设置」调整 · 测试期默认 1GB</span></h2>
+      <h2>今日限额 <span class="mut" style="font-weight:400;font-size:13px">自然日 0 点重置 · 上限在「⚙ 设置」调整 · 测试期默认 1GB</span></h2>
       <div class="grid">
         <div>
           <div class="quota-chip">↓ 下载 <span class="mut" id="dl-text"></span></div>
@@ -110,14 +108,17 @@ tr:last-child td{border-bottom:0}
         <span class="hint" style="margin:0">上限调整在 左侧「⚙ 设置」</span></div>
     </div>
     <div class="card">
-      <h2>任务概览</h2>
-      <div class="stats">
+      <h2>下载任务</h2>
+      <div class="stats" style="margin-bottom:12px">
         <div class="stat"><b id="sum-downloading">0</b><span>下载中</span></div>
         <div class="stat"><b id="sum-seeding">0</b><span>做种中</span></div>
         <div class="stat"><b id="sum-queued">0</b><span>排队/暂停</span></div>
         <div class="stat"><b id="sum-completed">0</b><span>已完成</span></div>
       </div>
-      <div class="hint">详细列表见左侧「下载任务」。</div>
+      <table>
+        <thead><tr><th>名称</th><th>状态</th><th>进度</th><th>↓ 下载</th><th>↑ 上传/做种</th><th>大小</th><th>操作</th></tr></thead>
+        <tbody id="tasks"><tr><td colspan="7" class="mut">加载中…</td></tr></tbody>
+      </table>
     </div>
   </div>
 
@@ -179,30 +180,6 @@ tr:last-child td{border-bottom:0}
     </div>
   </div>
 
-  <!-- 下载任务 -->
-  <div class="page" id="page-tasks">
-    <div class="card" style="margin-top:0">
-      <h2>下载任务</h2>
-      <table>
-        <thead><tr><th>名称</th><th>状态</th><th>进度</th><th>↓ 下载</th><th>↑ 上传/做种</th><th>大小</th><th>操作</th></tr></thead>
-        <tbody id="tasks"><tr><td colspan="7" class="mut">加载中…</td></tr></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- 全局限速 -->
-  <div class="page" id="page-ratelimit">
-    <div class="card" style="margin-top:0">
-      <h2>全局限速</h2>
-      <div class="row" style="margin-top:0">
-        <label>↓ 下载 <input id="rl-down" type="number" min="0" placeholder="不限"> KB/s</label>
-        <label>↑ 上传 <input id="rl-up" type="number" min="0" placeholder="不限"> KB/s</label>
-        <button onclick="saveRateLimit()">应用限速</button>
-      </div>
-      <div class="hint">速率层（跑多快）与每日容量限额（主页，每天跑多少）相互独立；0 或留空 = 不限速。</div>
-    </div>
-  </div>
-
   <!-- 设置 -->
   <div class="page" id="page-settings">
     <div class="card" style="margin-top:0">
@@ -219,6 +196,15 @@ tr:last-child td{border-bottom:0}
       <div class="row" style="margin-top:0"><input id="save-path" placeholder="绝对路径，如 /Movies/Bangumi 或 D:\Bangumi" style="width:100%"></div>
       <div class="row"><button onclick="savePath()">保存默认下载目录</button><span class="mut" id="save-path-now"></span></div>
       <div class="hint">目录不存在会自动创建；立即生效并回写 config.yaml，但只影响之后新增的任务。</div>
+    </div>
+    <div class="card">
+      <h2>全局限速</h2>
+      <div class="row" style="margin-top:0">
+        <label>↓ 下载 <input id="rl-down" type="number" min="0" placeholder="不限"> KB/s</label>
+        <label>↑ 上传 <input id="rl-up" type="number" min="0" placeholder="不限"> KB/s</label>
+        <button onclick="saveRateLimit()">应用限速</button>
+      </div>
+      <div class="hint">速率层（跑多快）与每日容量限额（主页，每天跑多少）相互独立；0 或留空 = 不限速。</div>
     </div>
     <div class="card">
       <h2>站点 Cookie（Cloudflare 兜底 · 无需登录）</h2>
@@ -252,7 +238,7 @@ function showPage(name){
   document.querySelectorAll('.side a').forEach(a => a.classList.toggle('active', a.dataset.page === name));
   if(name === 'subs') loadSubs();
   if(name === 'settings'){ loadSettings(); refreshSession(); }
-  if(name === 'home' || name === 'tasks') poll();
+  poll();
 }
 document.querySelectorAll('.side a[data-page]').forEach(a =>
   a.addEventListener('click', () => showPage(a.dataset.page)));
