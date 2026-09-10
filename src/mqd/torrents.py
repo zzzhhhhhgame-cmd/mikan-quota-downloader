@@ -63,6 +63,12 @@ def infohash_from_bytes(raw: bytes) -> str:
     return hashlib.sha1(raw[start : end]).hexdigest()
 
 
+def torrent_name(raw: bytes) -> str:
+    """取种子的 info.name（单文件=文件名，多文件=内容文件夹名）。"""
+    info = _decode(raw, 0)[0][b"info"]
+    return info[b"name"].decode("utf-8", "replace")
+
+
 def magnet_infohash(uri: str) -> str:
     """从磁力链接提取 v1 infohash（hex）。支持 40 位 hex 与 32 位 base32 两种形式。"""
     xt = (parse_qs(urlsplit(uri.strip()).query).get("xt") or [""])[0]

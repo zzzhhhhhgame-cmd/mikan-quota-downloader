@@ -32,6 +32,8 @@ class MikanClient:
         """返回 (订阅源标题, 条目列表)，条目按发布时间从旧到新（限额排队时优先补旧集）。"""
         xml = self.http.get_text(rss_url or self.rss_url)
         feed = parse_feed(xml)
+        # 频道标题在 feed.feed（channel 节点），顶层没有 title
+        raw_title = feed.feed.get("title") or ""
         episodes = []
         for entry in feed.entries:
             link = entry.get("link") or entry.get("id") or ""
@@ -51,7 +53,7 @@ class MikanClient:
                 )
             )
         episodes.sort(key=lambda ep: ep.published)
-        return feed.get("title") or "", episodes
+        return raw_title, episodes
 
     def fetch_episodes(self, rss_url: str = ""):
         return self.fetch_feed(rss_url)[1]

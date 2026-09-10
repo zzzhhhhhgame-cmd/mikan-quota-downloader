@@ -8,6 +8,7 @@ from mqd.quota import DailyQuota
 from mqd.session import CloudflareBlocked
 from mqd.store import Store
 
+from mqd.torrents import torrent_name
 from server.engine.base import TaskState
 from server.services.mirrors import MirrorService
 from server.services.quota_guard import QuotaGuard
@@ -23,9 +24,10 @@ class SubscriptionServiceTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
         self.paths = {"default": "/dl"}
         self.engine = FakeEngine()
-        self.store = Store(f"{tmp.name}/state.db")
+        self.store = Store(f"{self.tmp}/state.db")
         self.guard = QuotaGuard(self.engine, self.store, download_quota=DailyQuota(100), seed_limit_bytes=100)
         self.mikan = FakeMikan()
         self.mirrors = MirrorService(self.store, probe=lambda base: None)
@@ -33,7 +35,7 @@ class SubscriptionServiceTest(unittest.TestCase):
         self.subs = SubscriptionService(
             self.store, self.guard, self.mikan,
             save_path_provider=lambda: self.paths["default"],
-            torrent_dir=f"{tmp.name}/torrents",
+            torrent_dir=f"{self.tmp}/torrents",
             mirrors=self.mirrors,
         )
 
@@ -205,6 +207,50 @@ class SubscriptionServiceTest(unittest.TestCase):
         self.assertEqual(clean("mikan project - 尼古喵喵"), "尼古喵喵")
         self.assertEqual(clean("蜜柑计划 - 孤独摇滚"), "孤独摇滚")
         self.assertEqual(clean("孤独摇滚"), "孤独摇滚")
+
+    def test_organize_relocates_lost_loose_files(self):
+        """引擎里已丢失的集数：按存档内容名把散落在下载目录根的文件搬进番剧文件夹。"""
+        import os as _os
+
+        dl = _os.path.join(self.tmp, "dl")
+        self.paths["default"] = dl
+        self.mikan.set_feed(URL, "Mikan Project - 尼古喵喵", [make_episode("g1", published=1.0)])
+        self.mikan.sizes = {"g1": 60}
+        sub_id = self.subs.add(URL)["id"]
+        sha = self.store.episode_pending(sub_id)[0]["sha"]
+        self.engine.remove(sha)  # 任务丢失
+        # 下载目录根下有散落的同名文件（单文件种子落盘名 = name + 扩展名）
+        raw = self.mikan.download_torrent(make_episode("g1"))
+        loose = _os.path.join(dl, torrent_name(raw) + ".mkv")
+        _os.makedirs(dl, exist_ok=True)
+        with open(loose, "wb") as f:
+            f.write(b"x" * 60)
+
+        result = self.subs.organize()  # 离线整理（引擎为空也要能搬文件）
+        self.assertGreaterEqual(result["files_moved"], 1)
+        self.assertFalse(_os.path.exists(loose))  # 散落文件已归位
+        moved_into = _os.path.join(dl, "尼古喵喵", torrent_name(raw) + ".mkv")
+        self.assertTrue(_os.path.isfile(moved_into))
+
+    def test_organize_renames_folder_after_rename(self):
+        import os as _os
+
+        dl = _os.path.join(self.tmp, "dl")
+        self.paths["default"] = dl
+        self.mikan.set_feed(URL, "Mikan Project - 尼古喵喵", [])
+        sub_id = self.subs.add(URL)["id"]
+        sub = self.store.sub_get(sub_id)
+        old_dir = sub["save_path"]
+        _os.makedirs(old_dir, exist_ok=True)
+        with open(_os.path.join(old_dir, "a.txt"), "w") as f:
+            f.write("x")
+
+        self.subs.rename(sub_id, "新名字")
+        result = self.subs.organize()
+        self.assertEqual(result["dirs_renamed"], 1)
+        self.assertTrue(_os.path.isdir(_os.path.join(dl, "新名字")))
+        self.assertTrue(_os.path.isfile(_os.path.join(dl, "新名字", "a.txt")))
+        self.assertFalse(_os.path.exists(old_dir))
 
     def test_purge_removes_tracking(self):
         self.mikan.set_feed(URL, "某番", [])

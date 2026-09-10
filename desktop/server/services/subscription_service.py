@@ -24,7 +24,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from mqd.session import CloudflareBlocked
-from mqd.torrents import infohash_from_bytes
+from mqd.torrents import infohash_from_bytes, torrent_name
 
 from ..engine.base import EngineError, TaskState
 
@@ -263,14 +263,20 @@ class SubscriptionService:
         """整理订阅与已下载动画：补全番剧名/目录，把引擎任务的文件搬进各番剧文件夹。
 
         - 目录规则：<默认下载目录>/<番剧名>（手动指定过目录的订阅尊重原设置）；
-        - 文件搬迁用引擎 move_storage（任务跟随文件，自动重校验），仅处理仍在引擎里的任务；
+        - 订阅改名后旧文件夹跟着改成当前番剧名（目标不存在时）；
+        - 引擎里还在的任务：目录不对 → move_storage（文件随迁，自动重校验）；
+        - 引擎里已丢失的集数：按种子存档的内容名在下载目录根下找到散落文件，手动归位；
         - fetch_titles=True 时会联网拉取 RSS 补全缺失的番剧名（启动时只做离线部分）。
         """
-        result = {"renamed": 0, "paths_set": 0, "moved": 0, "skipped": 0}
+        import shutil
+
+        result = {"renamed": 0, "paths_set": 0, "moved": 0, "files_moved": 0,
+                  "dirs_renamed": 0, "skipped": 0}
         default_dir = self.save_path_provider()
 
+        subs = self.store.sub_list(deleted=None)
         sha_to_sub: dict = {}
-        for sub in self.store.sub_list(deleted=None):
+        for sub in subs:
             if fetch_titles and not sub["title"]:
                 try:
                     feed_title, _eps, _host = self._fetch_feed_failover(
@@ -290,10 +296,21 @@ class SubscriptionService:
                 sub["save_path"] = os.path.join(default_dir, self._safe_folder(sub["title"]))
                 self.store.sub_set_save_path(sub["id"], sub["save_path"])
                 result["paths_set"] += 1
+            # 订阅改名后旧文件夹跟着改名（目标已存在则不动，避免覆盖）
+            folder = Path(sub["save_path"]) if sub["save_path"] else None
+            wanted = self._safe_folder(sub["title"])
+            if folder is not None and folder.name != wanted and folder.exists() \
+                    and not (folder.parent / wanted).exists():
+                folder.rename(folder.parent / wanted)
+                sub["save_path"] = str(folder.parent / wanted)
+                self.store.sub_set_save_path(sub["id"], sub["save_path"])
+                result["dirs_renamed"] += 1
             for ep in self.store.episodes_all(sub["id"]):
                 sha_to_sub[ep["sha"]] = sub
 
-        for task in self.guard.engine.list():
+        # 引擎里还在的任务：目录不对 → move_storage（文件随迁+自动重校验）
+        engine_tasks = self.guard.engine.list() if self.guard else []
+        for task in engine_tasks:
             sub = sha_to_sub.get(task.sha)
             if sub is None or not sub.get("save_path"):
                 continue
@@ -304,6 +321,34 @@ class SubscriptionService:
                 result["moved"] += 1
             except EngineError:
                 continue
+
+        # 引擎里已丢失的集数：按存档内容名在下载目录根下找散落文件，手动归位
+        tasks_by_sha = {t.sha for t in engine_tasks}
+        for sub in subs:
+            if not sub.get("save_path"):
+                continue
+            target = Path(sub["save_path"])
+            for ep in self.store.episodes_all(sub["id"]):
+                if ep["sha"] in tasks_by_sha:
+                    continue  # 引擎里还在的已由 move_storage 处理
+                archive = Path(self.torrent_dir) / f"{ep['sha']}.torrent"
+                if not archive.exists() or not default_dir:
+                    continue
+                try:
+                    name = torrent_name(archive.read_bytes())
+                except (ValueError, KeyError, IndexError):
+                    continue
+                root = Path(default_dir)
+                loose = root / name
+                if not loose.exists():
+                    # 单文件种子的落盘文件名通常带扩展名（name.mkv 等），按前缀唯一匹配
+                    matches = list(root.glob(name + ".*"))
+                    loose = matches[0] if len(matches) == 1 else None
+                if loose is None or not loose.exists():
+                    continue
+                target.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(loose), str(target / loose.name))
+                result["files_moved"] += 1
         return result
 
     def reconcile(self, sub: dict) -> int:
