@@ -32,6 +32,7 @@ body{margin:0;background:var(--bg);color:var(--fg);
 /* ── 主内容 ── */
 .main{margin-left:212px;padding:26px 30px 60px;max-width:1020px}
 .page{display:none}
+#page-home{display:block}  /* 默认首页 */
 h2{font-size:16px;margin:0 0 14px;display:flex;align-items:center;gap:8px}
 h2::before{content:"";width:4px;height:16px;background:var(--acc);border-radius:2px;display:inline-block}
 .mut{color:var(--mut)}
@@ -480,6 +481,7 @@ async function checkSession(){
     $('session-check').textContent = s.ok? '✓ 会话可用' : '✗ '+(s.reason||'不可用'); refreshSession(); }catch(e){ toast(e.message);}
 }
 async function clearSession(){ await api('/api/session', {method:'DELETE'}); refreshSession(); toast('Cookie 已清除'); }
+showPage("home");  // 打开即显示主页
 refreshSession(); loadSettings(); loadSubs(); poll(); setInterval(poll, 2500);
 </script>
 </body>
