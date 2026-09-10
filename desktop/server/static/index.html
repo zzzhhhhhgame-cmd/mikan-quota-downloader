@@ -50,6 +50,18 @@ body{margin:0;color:var(--fg);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.5)}
 .side-bottom{margin-top:auto;border-top:1px solid rgba(255,255,255,.7);padding-top:10px}
 
+/* 实时监视器（Clash Verge 风格） */
+.traffic-widget{background:rgba(255,255,255,.55);border:1px solid var(--line);border-radius:14px;
+  padding:10px 12px;margin-bottom:10px;box-shadow:inset 0 1px 0 rgba(255,255,255,.7)}
+#traffic-chart{width:100%;height:56px;display:block;border-radius:8px}
+.trow{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:13px}
+.trow b{font-weight:600;margin-left:auto;font-variant-numeric:tabular-nums}
+.t-ico{width:16px;text-align:center;color:var(--mut)}
+.t-ico.up{color:#f97316}.t-ico.dn{color:var(--acc)}
+.trow .up{color:#f97316}.trow .dn{color:var(--acc)}
+.unit{color:var(--mut);font-size:12px}
+.cpu{margin-left:6px}
+
 /* 主内容 */
 .main{margin-left:212px;padding:26px 30px 60px;max-width:1020px}
 .page{display:none}
@@ -136,6 +148,12 @@ tr:last-child td{border-bottom:0}
     <a data-page="add">下载</a>
   </nav>
   <div class="side-bottom">
+    <div class="traffic-widget">
+      <canvas id="traffic-chart" width="376" height="112"></canvas>
+      <div class="trow"><span class="t-ico up">↑</span><b id="sp-up" class="up">0</b><span class="unit">B/s</span></div>
+      <div class="trow"><span class="t-ico dn">↓</span><b id="sp-down" class="dn">0</b><span class="unit">B/s</span></div>
+      <div class="trow"><span class="t-ico">⚙</span><b id="mem">–</b><span class="unit">MB</span><span id="cpu" class="unit cpu"></span></div>
+    </div>
     <a data-page="settings">⚙ 设置</a>
   </div>
 </aside>
@@ -520,6 +538,43 @@ async function organizeSubs(){
     loadSubs(); poll();
   }catch(e){ toast(e.message); }
 }
+/* ── 实时监视器：每秒采样 + Canvas 迷你曲线 ── */
+const hist = {down: [], up: []};
+const MAX_POINTS = 90;
+
+function drawTraffic(){
+  const c = $('traffic-chart');
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height, pad = 4;
+  ctx.clearRect(0, 0, W, H);
+  const peak = Math.max(1, ...hist.down, ...hist.up) * 1.15;
+  const plot = (data, stroke, fill) => {
+    if (data.length < 2) return;
+    ctx.beginPath();
+    data.forEach((v, i) => {
+      const x = pad + (W - pad*2) * i / (MAX_POINTS - 1);
+      const y = H - pad - (H - pad*2) * (v / peak);
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
+    ctx.strokeStyle = stroke; ctx.lineWidth = 3; ctx.stroke();
+    ctx.lineTo(W - pad, H - pad); ctx.lineTo(pad, H - pad); ctx.closePath();
+    ctx.fillStyle = fill; ctx.fill();
+  };
+  plot(hist.down, '#2563eb', 'rgba(37,99,235,.14)');
+  plot(hist.up, '#f97316', 'rgba(249,115,22,.12)');
+}
+async function pollStats(){
+  try{
+    const s = await api('/api/stats');
+    hist.down.push(s.down_bps); hist.up.push(s.up_bps);
+    if(hist.down.length > MAX_POINTS){ hist.down.shift(); hist.up.shift(); }
+    $('sp-up').textContent = fmtSpeed(s.up_bps);
+    $('sp-down').textContent = fmtSpeed(s.down_bps);
+    $('mem').textContent = s.mem_mb ?? '–';
+    $('cpu').textContent = s.cpu_percent != null ? s.cpu_percent + '%' : '';
+    drawTraffic();
+  }catch(e){}
+}
 async function importCookies(){
   try{ await api('/api/session/import', {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({cookie_string: $('cookie-string').value})});
@@ -531,7 +586,7 @@ async function checkSession(){
 }
 async function clearSession(){ await api('/api/session', {method:'DELETE'}); refreshSession(); toast('Cookie 已清除'); }
 showPage("home");  // 打开即显示主页
-refreshSession(); loadSettings(); loadSubs(); poll(); setInterval(poll, 2500);
+refreshSession(); loadSettings(); loadSubs(); poll(); setInterval(poll, 2500); setInterval(pollStats, 1000); pollStats();
 </script>
 </body>
 </html>

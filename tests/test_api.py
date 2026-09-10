@@ -99,6 +99,19 @@ class TasksApiTest(ApiTestBase):
         self.assertEqual(self.client.post("/api/tasks/deadbeef/pause").status_code, 404)
         self.assertEqual(self.client.delete("/api/tasks/deadbeef").status_code, 404)
 
+    def test_live_stats_sums_engine_rates(self):
+        from server.engine.base import TaskState, TorrentState
+
+        self.engine.torrents.append(
+            TorrentState(sha="s1", name="s1", state=TaskState.DOWNLOADING,
+                         rate_down=2048, rate_up=1024)
+        )
+        data = self.client.get("/api/stats").json()
+        self.assertEqual(data["down_bps"], 2048)
+        self.assertEqual(data["up_bps"], 1024)
+        self.assertIn("mem_mb", data)
+        self.assertIn("cpu_percent", data)
+
     def test_rate_limit_endpoint(self):
         resp = self.client.post("/api/rate-limit", json={"down_bps": 2048, "up_bps": 1024})
         self.assertEqual(resp.status_code, 200)

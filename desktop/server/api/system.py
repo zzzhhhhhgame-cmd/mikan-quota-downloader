@@ -17,6 +17,31 @@ def health(request: Request):
     return {"status": "ok", "engine": type(ctx.engine).__name__}
 
 
+@router.get("/stats")
+def live_stats(request: Request):
+    """实时监视：BT 上/下行速度（引擎各任务实时速率之和）+ 应用进程内存/CPU 占用。"""
+    ctx = request.app.state.ctx
+    down = up = 0
+    try:
+        for t in ctx.engine.list():
+            down += t.rate_down
+            up += t.rate_up
+    except Exception:
+        pass  # 引擎不可达时按 0 显示，界面有「引擎不可达」提示
+    mem_mb = cpu = None
+    try:
+        import os
+
+        import psutil
+
+        proc = psutil.Process(os.getpid())
+        mem_mb = round(proc.memory_info().rss / 1048576, 1)
+        cpu = round(proc.cpu_percent(interval=None), 1)
+    except Exception:
+        pass  # 未安装 psutil 时省略性能占用
+    return {"down_bps": down, "up_bps": up, "mem_mb": mem_mb, "cpu_percent": cpu}
+
+
 @router.get("/quota")
 def quota_snapshot(request: Request):
     ctx = request.app.state.ctx
