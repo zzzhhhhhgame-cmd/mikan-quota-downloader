@@ -59,7 +59,9 @@ tr:last-child td{border-bottom:0}
 .bar{height:12px;background:var(--line);border-radius:7px;overflow:hidden;margin:6px 0 2px}
 .bar i{display:block;height:100%;background:var(--acc);width:0%;transition:width .4s}
 .bar.warn i{background:var(--warn)}
-.badge{padding:3px 10px;border-radius:999px;font-size:13px;background:#f3f4f6;border:1px solid var(--line)}
+.badge{padding:3px 10px;border-radius:999px;font-size:13px;background:#f3f4f6;border:1px solid var(--line);
+  white-space:nowrap;display:inline-block}
+.nowrap{white-space:nowrap}
 .badge.ok{color:var(--ok);background:var(--ok-soft);border-color:#bbf7d0}
 .badge.warn{color:var(--warn);background:var(--warn-soft);border-color:#fde68a}
 .badge.bad{color:var(--bad);background:var(--bad-soft);border-color:#fecaca}
@@ -328,7 +330,7 @@ async function loadSubs(){
       const flag = !deleted && !s.enabled? '<span class="badge warn">已停用</span>' : '';
       if(deleted){
         const at = s.deleted_at? new Date(s.deleted_at*1000).toLocaleString() : '';
-        return `<tr><td class="mut">${s.title || s.rss_url}</td><td class="mut">${at}</td>
+        return `<tr><td class="mut">${s.title || s.rss_url}</td><td class="mut"><span class="nowrap">${at}</span></td>
           <td>
             <button class="small ghost" onclick="restoreSub(${s.id})">恢复</button>
             <button class="small ghost" onclick="delSub(${s.id}, true)">彻底删除</button>
@@ -336,7 +338,7 @@ async function loadSubs(){
       }
       return `<tr><td>${s.title || s.rss_url}</td>
         <td class="mut" title="${(s.save_path||'').replace(/"/g,'&quot;')}">${s.save_path || '默认'}</td>
-        <td class="mut">${when} ${state} ${flag}</td>
+        <td><div>${state} ${flag}</div><div class="mut nowrap" style="font-size:12px">${when}</div></td>
         <td>
           <button class="small ghost" onclick="renameSub(${s.id}, '${(s.title||'').replace(/'/g,"\\'")}')">重命名</button>
           <button class="small ghost" onclick="checkSub(${s.id})">立即检查</button>
