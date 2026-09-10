@@ -84,7 +84,7 @@ def main():
 
     try:
         if webview is not None:
-            webview.create_window("追番下载器 · mikan-quota-downloader", url, width=1380, height=880)
+            webview.create_window("Anime Downloader", url, width=1380, height=880)
             webview.start()  # 阻塞至窗口关闭
         else:
             import webbrowser

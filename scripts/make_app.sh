@@ -4,7 +4,7 @@
 set -e
 cd "$(dirname "$0")/.."
 REPO="$(pwd -P)"
-APP_NAME="追番下载器"
+APP_NAME="Anime Downloader"
 APP="$REPO/$APP_NAME.app"
 PYTHON="$REPO/.venv/bin/python"
 
@@ -33,7 +33,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleName</key><string>$APP_NAME</string>
   <key>CFBundleDisplayName</key><string>$APP_NAME</string>
-  <key>CFBundleIdentifier</key><string>cc.anime.mikan-downloader</string>
+  <key>CFBundleIdentifier</key><string>cc.anime.downloader</string>
   <key>CFBundleVersion</key><string>0.2.0</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>launcher</string>
@@ -44,13 +44,15 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# 4) 启动器：切到仓库目录（相对路径的 data/ 才正确），静默后台运行并写日志
+# 4) 启动器：切到仓库目录（相对路径的 data/ 才正确），静默后台运行
+#    日志放 ~/Library/Logs（不受 TCC 保护；若放 ~/Documents，未授权时启动会静默失败）
 cat > "$APP/Contents/MacOS/launcher" <<LAUNCH
 #!/bin/bash
 REPO="$REPO"
+LOGDIR="\$HOME/Library/Logs/AnimeDownloader"
+mkdir -p "\$LOGDIR" "\$REPO/data"
 cd "\$REPO"
-mkdir -p "\$REPO/data"
-exec "\$REPO/.venv/bin/python" "\$REPO/desktop/app.py" --config "\$REPO/config.yaml" >> "\$REPO/data/app-gui.log" 2>&1
+exec "\$REPO/.venv/bin/python" "\$REPO/desktop/app.py" --config "\$REPO/config.yaml" >> "\$LOGDIR/app-gui.log" 2>&1
 LAUNCH
 chmod +x "$APP/Contents/MacOS/launcher"
 

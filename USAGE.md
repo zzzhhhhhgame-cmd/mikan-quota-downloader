@@ -64,16 +64,16 @@ echo "$(brew --prefix libtorrent-rasterbar)/lib/python3.14/site-packages" \
 ### 1.5 作为桌面应用启动（✅ 推荐方式，无需终端）
 
 ```bash
-bash scripts/make_app.sh    # 构建一次：生成仓库目录下的「追番下载器.app」（含图标）
+bash scripts/make_app.sh    # 构建一次：生成仓库目录下的「Anime Downloader.app」（含图标）
 ```
 
-之后**双击「追番下载器.app」即可打开**，完全不经过终端：
+之后**双击「Anime Downloader.app」即可打开**，完全不经过终端：
 
 - 可以把它拖到「应用程序」文件夹，或拖到程序坞/桌面；
 - 重复双击只会激活已打开的窗口，不会多开实例；
 - 开机自动启动：系统设置 → 通用 → 登录项，添加该应用；
 - 运行日志在 `data/app-gui.log`；
-- Windows：双击 `scripts/追番下载器.bat`（pythonw 无黑窗口），可右键创建快捷方式到桌面。
+- Windows：双击 `scripts/AnimeDownloader.bat`（pythonw 无黑窗口），可右键创建快捷方式到桌面。
 
 > 更新代码后重新双击打开即可（.app 只是启动器，始终运行仓库里的最新代码，无需重新构建）。
 
