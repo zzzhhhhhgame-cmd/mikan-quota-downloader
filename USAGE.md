@@ -61,11 +61,27 @@ echo "$(brew --prefix libtorrent-rasterbar)/lib/python3.14/site-packages" \
 安装后打开 qBittorrent → **工具 → 选项 → Web UI** → 勾选「Web 用户界面」，
 端口保持 8080，设置账号密码（Windows 防火墙首次会弹窗，选「允许」）。
 
-### 1.5 启动桌面应用
+### 1.5 作为桌面应用启动（✅ 推荐方式，无需终端）
+
+```bash
+bash scripts/make_app.sh    # 构建一次：生成仓库目录下的「追番下载器.app」（含图标）
+```
+
+之后**双击「追番下载器.app」即可打开**，完全不经过终端：
+
+- 可以把它拖到「应用程序」文件夹，或拖到程序坞/桌面；
+- 重复双击只会激活已打开的窗口，不会多开实例；
+- 开机自动启动：系统设置 → 通用 → 登录项，添加该应用；
+- 运行日志在 `data/app-gui.log`；
+- Windows：双击 `scripts/追番下载器.bat`（pythonw 无黑窗口），可右键创建快捷方式到桌面。
+
+> 更新代码后重新双击打开即可（.app 只是启动器，始终运行仓库里的最新代码，无需重新构建）。
+
+### 1.6 命令行启动（开发者排障用，效果同上）
 
 ```bash
 .venv/bin/python desktop/app.py --config config.yaml   # 窗口模式
-.venv/bin/python desktop/app.py --browser              # 浏览器模式（窗口打不开时用）
+.venv/bin/python desktop/app.py --browser              # 浏览器模式
 ```
 
 关闭窗口即退出应用。**👤 人工操作**：启动后看主界面左上角——

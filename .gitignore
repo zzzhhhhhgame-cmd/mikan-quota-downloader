@@ -15,3 +15,7 @@ venv/
 *.log
 .idea/
 .vscode/
+
+# 本机构建产物
+*.app/
+build/
