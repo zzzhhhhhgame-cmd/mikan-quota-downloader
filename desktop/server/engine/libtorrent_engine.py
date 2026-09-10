@@ -126,6 +126,11 @@ class LibtorrentEngine(Engine):
                 order=self._next_seq,
             )
 
+    def move_storage(self, sha: str, new_path: str):
+        handle = self._find(sha)
+        if not handle.move_storage(new_path):
+            raise EngineError(f"文件搬迁失败（可能磁盘不可写）: {new_path}")
+
     def pause(self, sha: str):
         handle = self._find(sha)
         handle.unset_flags(lt.torrent_flags.auto_managed)  # 防止队列管理器自动恢复

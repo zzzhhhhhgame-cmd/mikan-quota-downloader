@@ -136,16 +136,17 @@ tr:last-child td{border-bottom:0}
         <label>检查间隔 <input id="sub-interval" type="number" min="1" style="width:76px"> 分钟</label>
         <button class="ghost" onclick="saveInterval()">保存间隔</button>
         <button class="ghost" onclick="checkAllSubs()">全部立即检查</button>
+        <button class="ghost" onclick="organizeSubs()">整理订阅与文件</button>
       </div>
       <div class="hint">粘贴即下载本轮全部集数；之后按设定间隔自动检查新集（去重，不会重复下）。
         粘贴任意镜像域名的链接都可以——域名会自动替换为可用镜像（列表在「⚙ 设置」维护）。
         每个集数会追踪到下载完成，期间任务丢失会自动重新入队。</div>
     </div>
     <div class="card">
-      <h2>我的订阅</h2>
+      <h2>我的订阅 <span class="mut" style="font-weight:400;font-size:13px">每部番自动在下载目录下建「番剧名」文件夹（添加时也可单独指定目录）</span></h2>
       <table>
-        <thead><tr><th style="width:26%">名称</th><th>状态</th><th style="width:290px">操作</th></tr></thead>
-        <tbody id="subs"><tr><td colspan="3" class="mut">加载中…</td></tr></tbody>
+        <thead><tr><th style="width:22%">名称</th><th>目录</th><th>状态</th><th style="width:290px">操作</th></tr></thead>
+        <tbody id="subs"><tr><td colspan="4" class="mut">加载中…</td></tr></tbody>
       </table>
     </div>
     <div class="card">
@@ -333,7 +334,9 @@ async function loadSubs(){
             <button class="small ghost" onclick="delSub(${s.id}, true)">彻底删除</button>
           </td></tr>`;
       }
-      return `<tr><td>${s.title || s.rss_url}</td><td class="mut">${when} ${state} ${flag}</td>
+      return `<tr><td>${s.title || s.rss_url}</td>
+        <td class="mut" title="${(s.save_path||'').replace(/"/g,'&quot;')}">${s.save_path || '默认'}</td>
+        <td class="mut">${when} ${state} ${flag}</td>
         <td>
           <button class="small ghost" onclick="renameSub(${s.id}, '${(s.title||'').replace(/'/g,"\\'")}')">重命名</button>
           <button class="small ghost" onclick="checkSub(${s.id})">立即检查</button>
@@ -342,9 +345,9 @@ async function loadSubs(){
         </td></tr>`;
     };
     $('subs').innerHTML = d.subscriptions.length? d.subscriptions.map(s=>renderRow(s,false)).join('')
-      : '<tr><td colspan="3" class="mut">还没有订阅：在 Mikan 番剧页点 RSS 图标复制链接，粘贴到上方即可</td></tr>';
+      : '<tr><td colspan="4" class="mut">还没有订阅：在 Mikan 番剧页点 RSS 图标复制链接，粘贴到上方即可</td></tr>';
     $('subs-deleted').innerHTML = d.deleted.length? d.deleted.map(s=>renderRow(s,true)).join('')
-      : '<tr><td colspan="3" class="mut">无</td></tr>';
+      : '<tr><td colspan="4" class="mut">无</td></tr>';
     if(document.activeElement.id !== 'sub-interval' && $('sub-interval').value === '')
       $('sub-interval').value = d.interval_minutes;
   }catch(e){ $('subs').innerHTML = '<tr><td colspan="3" class="mut">加载失败：'+e.message+'</td></tr>'; }
@@ -455,6 +458,14 @@ async function delMirror(id){ try{ await api(`/api/mirrors/${id}`, {method:'DELE
 async function checkMirrors(){
   try{ const r = await api('/api/mirrors/check', {method:'POST'});
     toast(`检测完成：${r.available}/${r.checked} 个可用`); loadMirrors();
+  }catch(e){ toast(e.message); }
+}
+async function organizeSubs(){
+  try{
+    const r = await api('/api/subscriptions/organize', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({fetch_titles: true})});
+    toast(`整理完成：补全名称 ${r.renamed}，设定目录 ${r.paths_set}，搬迁文件 ${r.moved}`);
+    loadSubs(); poll();
   }catch(e){ toast(e.message); }
 }
 async function importCookies(){

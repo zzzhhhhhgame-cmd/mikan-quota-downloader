@@ -68,6 +68,10 @@ class Engine(ABC):
         """
 
     @abstractmethod
+    def move_storage(self, sha: str, new_path: str):
+        """把任务的已下载文件搬迁到新目录（任务继续，引擎会自动重校验）。"""
+
+    @abstractmethod
     def pause(self, sha: str):
         """暂停任务（进入等待队列语义）。"""
 

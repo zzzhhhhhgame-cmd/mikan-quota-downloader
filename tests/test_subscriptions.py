@@ -38,14 +38,15 @@ class SubscriptionServiceTest(unittest.TestCase):
         )
 
     def test_add_downloads_immediately(self):
-        self.mikan.set_feed(URL, "某番", [make_episode("g1", "第1集", 1.0), make_episode("g2", "第2集", 2.0)])
+        self.mikan.set_feed(URL, "Mikan Project - 尼古喵喵", [make_episode("g1", "第1集", 1.0), make_episode("g2", "第2集", 2.0)])
         summary = self.subs.add(URL)
-        self.assertEqual(summary["title"], "某番")  # 未填名称时自动取订阅源标题
+        self.assertEqual(summary["title"], "尼古喵喵")  # 自动去站点前缀
         self.assertEqual(summary["total"], 2)
         self.assertEqual(summary["started"], 2)
         self.assertEqual(len(self.engine.torrents), 2)
-        # 所有任务都落到默认目录
-        self.assertTrue(all(t.save_path == "/dl" for t in self.engine.torrents))
+        # 每番独立目录：<默认下载目录>/<番剧名>
+        self.assertTrue(all(t.save_path == "/dl/尼古喵喵" for t in self.engine.torrents))
+        self.assertEqual(self.store.sub_get(summary["id"])["save_path"], "/dl/尼古喵喵")
 
     def test_recheck_dedups_by_guid(self):
         self.mikan.set_feed(URL, "某番", [make_episode("g1", published=1.0)])
@@ -154,6 +155,56 @@ class SubscriptionServiceTest(unittest.TestCase):
         # 再跑一次不应重复入队
         self.assertEqual(self.subs.reconcile(self.store.sub_get(sub_id)), 0)
         self.assertEqual(len(self.engine.list()), 1)
+
+    def test_organize_fills_dir_and_moves_files(self):
+        """整理：旧订阅补目录 + 引擎任务文件搬进番剧文件夹。"""
+        self.paths["default"] = "/dl"
+        self.mikan.set_feed(URL, "Mikan Project - 尼古喵喵", [make_episode("g1", published=1.0)])
+        self.mikan.sizes = {"g1": 60}
+        sub_id = self.subs.add(URL)["id"]
+        # 模拟旧数据：任务还在旧目录、订阅目录未设置
+        self.store.sub_set_save_path(sub_id, "")
+        self.engine._set(self.engine.torrents[0].sha, save_path="/old")
+
+        result = self.subs.organize()
+        self.assertEqual(result["paths_set"], 1)
+        self.assertEqual(result["moved"], 1)
+        sub = self.store.sub_get(sub_id)
+        self.assertEqual(sub["save_path"], "/dl/尼古喵喵")
+        self.assertEqual(self.engine.torrents[0].save_path, "/dl/尼古喵喵")
+        self.assertIn((self.engine.torrents[0].sha, "/dl/尼古喵喵"), self.engine.moved)
+
+    def test_organize_fetches_missing_title(self):
+        self.paths["default"] = "/dl"
+        # 订阅存的是域名无关路径，镜像列表里 tangbai.cc 可用 → 从那里拉标题
+        path = "/RSS/Bangumi?bangumiId=3992&subgroupid=370"
+        self.mikan.set_feed("https://mikan.tangbai.cc" + path, "Mikan Project - 尼古喵喵", [])
+        sub_id = self.store.sub_add(path, "", "")  # 旧订阅：无标题
+        result = self.subs.organize(fetch_titles=True)
+        self.assertEqual(result["renamed"], 1)
+        self.assertEqual(self.store.sub_get(sub_id)["title"], "尼古喵喵")
+        self.assertEqual(self.store.sub_get(sub_id)["save_path"], "/dl/尼古喵喵")
+
+    def test_check_lazy_fills_title_and_dir(self):
+        """旧订阅（无标题无目录）检查一次后自动补全。"""
+        path = "/RSS/Bangumi?bangumiId=7&subgroupid=1"
+        self.mikan.set_feed("https://mikan.tangbai.cc" + path, "Mikan Project - 懒加载番", [make_episode("g9", published=1.0)])
+        sub_id = self.store.sub_add(path)
+        self.subs.check_one(sub_id)
+        sub = self.store.sub_get(sub_id)
+        self.assertEqual(sub["title"], "懒加载番")
+        self.assertEqual(sub["save_path"], "/dl/懒加载番")
+
+    def test_safe_folder_sanitizes_illegal_chars(self):
+        self.assertEqual(SubscriptionService._safe_folder('Re:Zero / "Second" <Part> |2?'), "Re Zero Second Part 2")
+        self.assertEqual(SubscriptionService._safe_folder("  "), "未命名番剧")
+
+    def test_clean_title_strips_site_prefix(self):
+        clean = SubscriptionService._clean_title
+        self.assertEqual(clean("Mikan Project - 尼古喵喵"), "尼古喵喵")
+        self.assertEqual(clean("mikan project - 尼古喵喵"), "尼古喵喵")
+        self.assertEqual(clean("蜜柑计划 - 孤独摇滚"), "孤独摇滚")
+        self.assertEqual(clean("孤独摇滚"), "孤独摇滚")
 
     def test_purge_removes_tracking(self):
         self.mikan.set_feed(URL, "某番", [])

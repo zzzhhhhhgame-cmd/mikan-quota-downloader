@@ -99,6 +99,15 @@ class QbtWebuiEngine(Engine):
             raise EngineError(f"qBittorrent 拒绝了磁力链接: {resp.text.strip()}")
         return sha
 
+    def move_storage(self, sha: str, new_path: str):
+        hashes = self._require_known(sha)
+        resp = self.session.post(
+            f"{self.base}/api/v2/torrents/setLocation",
+            data={"hashes": hashes, "location": new_path},
+            timeout=30,
+        )
+        resp.raise_for_status()
+
     def pause(self, sha: str):
         self._post_compat("torrents/pause", "torrents/stop", sha=sha)
 

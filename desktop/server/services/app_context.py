@@ -94,6 +94,10 @@ def build_context(cfg: dict, config_path: str | None = None) -> AppContext:
     ctx.mirrors.ensure_seeded()  # 内置常见 Mikan 镜像域名（可在设置页增删）
     ctx.subs.mirrors = ctx.mirrors
     ctx.subs.migrate_legacy_urls()  # 旧订阅的完整 URL 改写为域名无关路径
+    try:
+        ctx.subs.organize()  # 启动时离线整理：补目录、把引擎任务文件搬进各番剧文件夹
+    except Exception:
+        pass  # 整理失败不阻塞启动，可稍后在订阅页手动触发
     scheduler.mikan_job = ctx.subs.periodic
     return ctx
 

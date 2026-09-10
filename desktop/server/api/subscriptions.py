@@ -37,6 +37,16 @@ def check_all(request: Request):
     return request.app.state.ctx.subs.check_all()
 
 
+@router.post("/organize")
+def organize(request: Request, payload: dict | None = None):
+    """整理订阅与已下载动画：补全番剧名/目录，文件搬进各番剧文件夹。
+
+    fetch_titles=True 时会联网拉取 RSS 补全缺失的番剧名（默认只做离线部分）。
+    """
+    fetch_titles = bool((payload or {}).get("fetch_titles"))
+    return request.app.state.ctx.subs.organize(fetch_titles=fetch_titles)
+
+
 @router.post("/{sub_id}/check")
 def check_subscription(sub_id: int, request: Request):
     ctx = request.app.state.ctx

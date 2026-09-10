@@ -24,6 +24,7 @@ class FakeEngine(Engine):
     def __init__(self):
         self.torrents = []
         self.resumed = []
+        self.moved = []
         self.download_bps = None
         self.upload_bps = None
         self._seq = 0
@@ -90,6 +91,11 @@ class FakeEngine(Engine):
 
     def list(self):
         return list(self.torrents)
+
+    def move_storage(self, sha, new_path):
+        self._require(sha)
+        self.moved.append((sha, new_path))
+        self._set(sha, save_path=new_path)
 
     def set_global_limit(self, down_bps):
         pass

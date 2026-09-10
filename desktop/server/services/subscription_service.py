@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+import os
+import re
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -69,6 +71,29 @@ class SubscriptionService:
                 "（例如 https://任何镜像域名/RSS/Bangumi?bangumiId=…&subgroupid=…）"
             )
         return path
+
+    @staticmethod
+    def _clean_title(raw: str) -> str:
+        """去掉订阅源标题里的站点前缀："Mikan Project - 尼古喵喵" → "尼古喵喵"。"""
+        title = (raw or "").strip()
+        title = re.sub(
+            r"^(mikan\s*project|蜜柑计划|mikan)\s*[-–—:：]\s*", "", title, flags=re.IGNORECASE
+        )
+        return title.strip()
+
+    @staticmethod
+    def _safe_folder(title: str) -> str:
+        """番剧名 → 合法的文件夹名（替换文件系统非法字符）。"""
+        folder = re.sub(r'[\\/:*?"<>|]', " ", (title or "").strip())
+        folder = re.sub(r"\s+", " ", folder).strip().strip(".")
+        return folder[:80] or "未命名番剧"
+
+    def _default_sub_dir(self, title: str) -> str:
+        """番剧目录规则：<默认下载目录>/<番剧名>；未设置默认目录时返回空。"""
+        default_dir = self.save_path_provider()
+        if not default_dir:
+            return ""
+        return os.path.join(default_dir, self._safe_folder(title))
 
     def _candidate_urls(self, rss_path: str, preferred_host: str = ""):
         """按镜像优先级构造候选 RSS 地址：用户给的域名优先，其余按最近可用排序。"""
@@ -126,17 +151,22 @@ class SubscriptionService:
         except Exception as exc:
             raise SubscriptionError(f"所有镜像均拉取失败：{exc}") from exc
 
-        sub_id = self.store.sub_add(rss_path, title.strip() or feed_title, save_path.strip(), host)
+        # 名称自动提取（去 "Mikan Project - " 前缀）+ 每番独立目录：<下载目录>/<番剧名>
+        title = title.strip() or self._clean_title(feed_title)
+        sub_id = self.store.sub_add(rss_path, title, save_path.strip(), host)
+        target = save_path.strip() or self._default_sub_dir(title)
+        if target:
+            self.store.sub_set_save_path(sub_id, target)
         summary = {
             "id": sub_id,
-            "title": title.strip() or feed_title,
+            "title": title,
             "total": len(episodes),
             "started": 0,
             "queued": 0,
             "errors": [],
         }
         self._download_new(
-            sub_id, episodes, save_path.strip() or None, summary, strict_directory=True
+            sub_id, episodes, target or None, summary, strict_directory=True
         )
         return summary
 
@@ -174,7 +204,9 @@ class SubscriptionService:
             raise SubscriptionError("订阅已删除（可在订阅页的「已删除」列表恢复）")
         summary = {"id": sub_id, "title": sub["title"], "started": 0, "queued": 0, "errors": []}
         try:
-            _title, episodes, host = self._fetch_feed_failover(sub["rss_url"], sub.get("mirror_host") or "")
+            feed_title, episodes, host = self._fetch_feed_failover(
+                sub["rss_url"], sub.get("mirror_host") or ""
+            )
             if host != sub.get("mirror_host"):
                 self.store.sub_set_mirror(sub_id, host)  # 记住这次成功的镜像，下次优先
         except CloudflareBlocked as exc:
@@ -186,6 +218,19 @@ class SubscriptionService:
             self.store.sub_mark_checked(sub_id, error=f"拉取失败：{exc}")
             summary["detail"] = f"拉取失败：{exc}"
             return summary
+
+        # 懒补全：旧订阅缺名称/缺目录的，借这次拉取补上（名称取自 RSS 标题）
+        if not sub["title"] and feed_title:
+            clean = self._clean_title(feed_title)
+            if clean:
+                self.store.sub_rename(sub_id, clean)
+                sub["title"] = clean
+        default_dir = self.save_path_provider()
+        if not sub["save_path"] and default_dir and sub["title"]:
+            sub_dir = os.path.join(default_dir, self._safe_folder(sub["title"]))
+            self.store.sub_set_save_path(sub_id, sub_dir)
+            sub["save_path"] = sub_dir
+
         self._download_new(sub_id, episodes, sub["save_path"] or None, summary)
         return summary
 
@@ -212,6 +257,53 @@ class SubscriptionService:
         """调度器每轮入口：先本地补拉（无需网络），再拉 RSS 检查更新。"""
         result = self.reconcile_all()
         result.update(self.check_all())
+        return result
+
+    def organize(self, fetch_titles: bool = False) -> dict:
+        """整理订阅与已下载动画：补全番剧名/目录，把引擎任务的文件搬进各番剧文件夹。
+
+        - 目录规则：<默认下载目录>/<番剧名>（手动指定过目录的订阅尊重原设置）；
+        - 文件搬迁用引擎 move_storage（任务跟随文件，自动重校验），仅处理仍在引擎里的任务；
+        - fetch_titles=True 时会联网拉取 RSS 补全缺失的番剧名（启动时只做离线部分）。
+        """
+        result = {"renamed": 0, "paths_set": 0, "moved": 0, "skipped": 0}
+        default_dir = self.save_path_provider()
+
+        sha_to_sub: dict = {}
+        for sub in self.store.sub_list(deleted=None):
+            if fetch_titles and not sub["title"]:
+                try:
+                    feed_title, _eps, _host = self._fetch_feed_failover(
+                        sub["rss_url"], sub.get("mirror_host") or ""
+                    )
+                    clean = self._clean_title(feed_title)
+                    if clean:
+                        self.store.sub_rename(sub["id"], clean)
+                        sub["title"] = clean
+                        result["renamed"] += 1
+                except Exception:
+                    pass  # 拉取失败不阻塞整理，标题留待下次
+            if not sub["title"]:
+                result["skipped"] += 1
+                continue
+            if not sub["save_path"] and default_dir:
+                sub["save_path"] = os.path.join(default_dir, self._safe_folder(sub["title"]))
+                self.store.sub_set_save_path(sub["id"], sub["save_path"])
+                result["paths_set"] += 1
+            for ep in self.store.episodes_all(sub["id"]):
+                sha_to_sub[ep["sha"]] = sub
+
+        for task in self.guard.engine.list():
+            sub = sha_to_sub.get(task.sha)
+            if sub is None or not sub.get("save_path"):
+                continue
+            if Path(task.save_path or "").resolve() == Path(sub["save_path"]).resolve():
+                continue
+            try:
+                self.guard.engine.move_storage(task.sha, sub["save_path"])
+                result["moved"] += 1
+            except EngineError:
+                continue
         return result
 
     def reconcile(self, sub: dict) -> int:

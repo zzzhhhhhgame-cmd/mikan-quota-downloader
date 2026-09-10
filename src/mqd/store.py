@@ -232,6 +232,13 @@ class Store:
             )
             self.conn.commit()
 
+    def sub_set_save_path(self, sub_id: int, save_path: str):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE subscriptions SET save_path=? WHERE id=?", (save_path, sub_id)
+            )
+            self.conn.commit()
+
     def sub_soft_delete(self, sub_id: int):
         """软删除：订阅移入「已删除」，集数追踪保留，可恢复。"""
         with self._lock:
@@ -279,6 +286,15 @@ class Store:
                 dict(r)
                 for r in self.conn.execute(
                     "SELECT * FROM sub_episodes WHERE sub_id=? AND state='added'", (sub_id,)
+                ).fetchall()
+            ]
+
+    def episodes_all(self, sub_id: int):
+        with self._lock:
+            return [
+                dict(r)
+                for r in self.conn.execute(
+                    "SELECT * FROM sub_episodes WHERE sub_id=?", (sub_id,)
                 ).fetchall()
             ]
 
