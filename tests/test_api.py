@@ -10,6 +10,7 @@ from mqd.store import Store
 
 from server.main import create_app
 from server.services.app_context import AppContext
+from server.services.mirrors import MirrorService
 from server.services.quota_guard import QuotaGuard
 from server.services.session_manager import SessionManager
 from server.services.subscription_service import SubscriptionService
@@ -31,6 +32,8 @@ class ApiTestBase(unittest.TestCase):
             seed_limit_bytes=100,
         )
         self.mikan = FakeMikan()
+        self.mirrors = MirrorService(guard.store, probe=lambda base: None)
+        self.mirrors.ensure_seeded()
         self.ctx = AppContext(
             cfg={"mikan": {"base_url": "https://mikan.example"}},
             engine=engine,
@@ -38,10 +41,11 @@ class ApiTestBase(unittest.TestCase):
             guard=guard,
             sessions=SessionManager("https://mikan.example", f"{self.tmp}/session.json"),
             mikan=self.mikan,
+            mirrors=self.mirrors,
         )
         self.ctx.subs = SubscriptionService(
             guard.store, guard, self.mikan, lambda: self.ctx.default_save_path,
-            torrent_dir=f"{self.tmp}/torrents",
+            torrent_dir=f"{self.tmp}/torrents", mirrors=self.mirrors,
         )
         self.engine = engine
         self.client = TestClient(create_app(self.ctx))
@@ -214,6 +218,34 @@ class SubscriptionsApiTest(ApiTestBase):
         self.assertEqual(
             self.client.post("/api/settings/interval", json={"minutes": 0}).status_code, 422
         )
+
+
+class MirrorsApiTest(ApiTestBase):
+    def test_seeded_defaults_present(self):
+        hosts = [m["base_url"] for m in self.client.get("/api/mirrors").json()["mirrors"]]
+        self.assertIn("https://mikan.tangbai.cc", hosts)
+        self.assertIn("https://mikanime.tv", hosts)
+
+    def test_add_normalizes_and_probes(self):
+        resp = self.client.post("/api/mirrors", json={"base_url": "mikanani.kas.pub"})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["base_url"], "https://mikanani.kas.pub")
+        self.assertTrue(data["available"])  # 测试探针恒可用
+
+    def test_add_invalid_rejected(self):
+        self.assertEqual(
+            self.client.post("/api/mirrors", json={"base_url": "   "}).status_code, 422
+        )
+
+    def test_check_and_remove(self):
+        before = len(self.client.get("/api/mirrors").json()["mirrors"])
+        summary = self.client.post("/api/mirrors/check").json()
+        self.assertEqual(summary["checked"], before)
+        self.assertEqual(summary["available"], before)
+        mirror_id = self.client.get("/api/mirrors").json()["mirrors"][0]["id"]
+        self.client.delete(f"/api/mirrors/{mirror_id}")
+        self.assertEqual(len(self.client.get("/api/mirrors").json()["mirrors"]), before - 1)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ from ..engine.base import Engine, EngineError
 from ..engine.libtorrent_engine import LIBTORRENT_AVAILABLE, LibtorrentEngine
 from ..engine.qbt_engine import QbtWebuiEngine
 from .config_store import ConfigStore
+from .mirrors import MirrorService
 from .quota_guard import QuotaGuard
 from .scheduler import SyncScheduler
 from .session_manager import SessionManager
@@ -31,6 +32,7 @@ class AppContext:
     default_save_path: str = ""  # 全局默认下载目录（空=未设置）
     mikan: MikanClient | None = None  # 站点客户端（订阅轮询与种子下载共用）
     subs: SubscriptionService | None = None  # RSS 链接订阅服务
+    mirrors: MirrorService | None = None  # Mikan 镜像/副站域名管理
 
     def start(self):
         self.engine.start()
@@ -88,6 +90,10 @@ def build_context(cfg: dict, config_path: str | None = None) -> AppContext:
         store, guard, mikan, save_path_provider=lambda: ctx.default_save_path,
         torrent_dir=torrent_dir,
     )
+    ctx.mirrors = MirrorService(store)
+    ctx.mirrors.ensure_seeded()  # 内置常见 Mikan 镜像域名（可在设置页增删）
+    ctx.subs.mirrors = ctx.mirrors
+    ctx.subs.migrate_legacy_urls()  # 旧订阅的完整 URL 改写为域名无关路径
     scheduler.mikan_job = ctx.subs.periodic
     return ctx
 

@@ -1,4 +1,6 @@
-"""测试共享夹具：FakeMikan（Mikan 客户端内存实现）。"""
+"""测试共享夹具：FakeMikan（Mikan 客户端内存实现，支持按域名模拟故障）。"""
+
+from urllib.parse import urlsplit
 
 from mqd.mikan import Episode
 from mqd.session import CloudflareBlocked
@@ -7,18 +9,22 @@ from test_quota_guard import make_torrent
 
 
 class FakeMikan:
-    """可配置行为的假 Mikan：mode=ok/blocked/error，feeds 保存预设订阅源。"""
+    """可配置行为的假 Mikan：mode=ok/blocked/error，dead_hosts 模拟镜像域名故障。"""
 
     def __init__(self, mode="ok"):
         self.mode = mode
-        self.feeds = {}  # url -> (title, [Episode])
+        self.feeds = {}  # 完整 URL -> (title, [Episode])
         self.sizes = {}  # guid -> 种子字节数（决定限额行为）
+        self.dead_hosts = set()  # 这些域名上的请求一律抛连接失败
 
     def set_feed(self, url, title, episodes):
         self.feeds[url] = (title, episodes)
 
     def fetch_feed(self, rss_url=""):
         self._check()
+        host = urlsplit(rss_url).netloc
+        if host in self.dead_hosts:
+            raise RuntimeError(f"连接失败: {host}")
         return self.feeds.get(rss_url, ("", []))
 
     def download_torrent(self, episode):

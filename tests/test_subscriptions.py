@@ -9,6 +9,7 @@ from mqd.session import CloudflareBlocked
 from mqd.store import Store
 
 from server.engine.base import TaskState
+from server.services.mirrors import MirrorService
 from server.services.quota_guard import QuotaGuard
 from server.services.subscription_service import SubscriptionError, SubscriptionService
 
@@ -27,10 +28,13 @@ class SubscriptionServiceTest(unittest.TestCase):
         self.store = Store(f"{tmp.name}/state.db")
         self.guard = QuotaGuard(self.engine, self.store, download_quota=DailyQuota(100), seed_limit_bytes=100)
         self.mikan = FakeMikan()
+        self.mirrors = MirrorService(self.store, probe=lambda base: None)
+        self.mirrors.ensure_seeded()
         self.subs = SubscriptionService(
             self.store, self.guard, self.mikan,
             save_path_provider=lambda: self.paths["default"],
             torrent_dir=f"{tmp.name}/torrents",
+            mirrors=self.mirrors,
         )
 
     def test_add_downloads_immediately(self):
@@ -157,6 +161,38 @@ class SubscriptionServiceTest(unittest.TestCase):
         self.store.sub_purge(sub_id)
         self.assertIsNone(self.store.sub_get(sub_id))
 
+    def test_domain_replaced_with_working_mirror(self):
+        """粘贴被墙域名的 RSS → 自动换到可用镜像订阅，存储的是域名无关路径。"""
+        self.mikan.dead_hosts = {"mikan.tangbai.cc"}  # 种子列表里第一个域名挂了
+        path = "/RSS/Bangumi?bangumiId=1&subgroupid=2"
+        self.mikan.set_feed("https://mikanime.tv" + path, "某番", [make_episode("g1", published=1.0)])
+        summary = self.subs.add("https://mikan.tangbai.cc" + path)
+        self.assertEqual(summary["started"], 1)
+        sub = self.store.sub_get(summary["id"])
+        self.assertEqual(sub["rss_url"], path)  # 存的是路径，与域名无关
+        self.assertEqual(sub["mirror_host"], "mikanime.tv")  # 记住了可用镜像
+
+    def test_check_rotates_when_preferred_mirror_dies(self):
+        path = "/RSS/Bangumi?bangumiId=1&subgroupid=2"
+        self.mikan.set_feed("https://mikanime.tv" + path, "某番", [make_episode("g1", published=1.0)])
+        summary = self.subs.add("https://mikanime.tv" + path)
+        sub_id = summary["id"]
+        self.assertEqual(self.store.sub_get(sub_id)["mirror_host"], "mikanime.tv")
+
+        # mikanime 挂了，但 tangbai 上同路径可用 → 自动切换
+        self.mikan.dead_hosts.add("mikanime.tv")
+        self.mikan.set_feed("https://mikan.tangbai.cc" + path, "某番", [make_episode("g1", published=1.0)])
+        result = self.subs.check_one(sub_id)
+        self.assertEqual(result["started"], 0)  # g1 已完成去重，但拉取成功
+        self.assertEqual(self.store.sub_get(sub_id)["mirror_host"], "mikan.tangbai.cc")
+
+    def test_all_mirrors_dead_raises(self):
+        self.mikan.dead_hosts = {"mikan.tangbai.cc", "mikanime.tv", "mikanani.me",
+                                 "mikan.sakiko.de", "mikanani.kas.pub", "mikan.example"}
+        path = "/RSS/Bangumi?bangumiId=1&subgroupid=2"
+        with self.assertRaises(SubscriptionError):
+            self.subs.add("https://mikan.tangbai.cc" + path)
+
     def test_disabled_subscription_skipped_in_check_all(self):
         self.mikan.set_feed(URL, "某番", [make_episode("g1", published=1.0)])
         sub_id = self.subs.add(URL)["id"]
@@ -165,10 +201,10 @@ class SubscriptionServiceTest(unittest.TestCase):
         self.assertEqual(result["checked"], 0)
 
     def test_check_all_stops_on_block(self):
-        self.mikan.set_feed("https://x/1", "a", [])
-        self.mikan.set_feed("https://x/2", "b", [])
-        self.subs.add("https://x/1")
-        self.subs.add("https://x/2")
+        self.mikan.set_feed("https://x/RSS/1", "a", [])
+        self.mikan.set_feed("https://x/RSS/2", "b", [])
+        self.subs.add("https://x/RSS/1")
+        self.subs.add("https://x/RSS/2")
         self.mikan.mode = "blocked"
         result = self.subs.check_all()
         self.assertEqual(result["blocked"], 1)

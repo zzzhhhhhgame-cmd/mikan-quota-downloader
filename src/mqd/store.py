@@ -48,6 +48,15 @@ class Store:
                 last_error TEXT DEFAULT '',
                 deleted_at REAL DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS mirrors(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                base_url TEXT UNIQUE,
+                enabled INTEGER DEFAULT 1,
+                added_at REAL DEFAULT 0,
+                last_checked REAL DEFAULT 0,
+                last_ok REAL DEFAULT 0,
+                last_error TEXT DEFAULT ''
+            );
             CREATE TABLE IF NOT EXISTS sub_episodes(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 sub_id INTEGER,
@@ -68,6 +77,56 @@ class Store:
         self._ensure_column("ledger", "uploaded", "INTEGER DEFAULT 0")
         self._ensure_column("daily", "up_used", "INTEGER DEFAULT 0")
         self._ensure_column("subscriptions", "deleted_at", "REAL DEFAULT 0")
+        self._ensure_column("subscriptions", "mirror_host", "TEXT DEFAULT ''")
+
+    # ---- 镜像站 ----
+
+    def mirror_add(self, base_url: str) -> int:
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT id FROM mirrors WHERE base_url=?", (base_url,)
+            ).fetchone()
+            if row is not None:
+                return row["id"]
+            cur = self.conn.execute(
+                "INSERT INTO mirrors(base_url, added_at) VALUES (?,?)", (base_url, time.time())
+            )
+            self.conn.commit()
+            return int(cur.lastrowid)
+
+    def mirror_list(self):
+        with self._lock:
+            return [
+                dict(r)
+                for r in self.conn.execute(
+                    "SELECT * FROM mirrors WHERE enabled=1 "
+                    "ORDER BY last_ok DESC, id"
+                ).fetchall()
+            ]
+
+    def mirror_remove(self, mirror_id: int):
+        with self._lock:
+            self.conn.execute("DELETE FROM mirrors WHERE id=?", (mirror_id,))
+            self.conn.commit()
+
+    def mirror_mark(self, mirror_id: int, ok: bool, error: str = ""):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE mirrors SET last_checked=?, last_ok=?, last_error=? WHERE id=?",
+                (time.time(), time.time() if ok else 0, error, mirror_id),
+            )
+            self.conn.commit()
+
+    def mirror_hosts(self):
+        """启用中的镜像主机名（不含 scheme），按 最近可用优先 排序。"""
+        with self._lock:
+            return [
+                r["base_url"].split("://", 1)[1]
+                for r in self.conn.execute(
+                    "SELECT base_url FROM mirrors WHERE enabled=1 "
+                    "ORDER BY (last_ok > 0) DESC, id"
+                ).fetchall()
+            ]
 
     def _ensure_column(self, table, column, ddl):
         columns = {row[1] for row in self.conn.execute(f"PRAGMA table_info({table})")}
@@ -91,26 +150,49 @@ class Store:
 
     # ---- 订阅（RSS 链接） ----
 
-    def sub_add(self, rss_url: str, title: str = "", save_path: str = "") -> int:
-        """按 URL upsert：重复添加视为更新标题/目录并重新启用（含从已删除恢复）。返回订阅 id。"""
+    def sub_add(self, rss_path: str, title: str = "", save_path: str = "", mirror_host: str = "") -> int:
+        """按 RSS 路径 upsert（域名无关：同一订阅在不同镜像视为同一条）。
+        重复添加视为更新标题/目录并重新启用（含从已删除恢复）。返回订阅 id。"""
         with self._lock:
             row = self.conn.execute(
-                "SELECT id FROM subscriptions WHERE rss_url=?", (rss_url,)
+                "SELECT id FROM subscriptions WHERE rss_url=?", (rss_path,)
             ).fetchone()
             if row is not None:
                 self.conn.execute(
-                    "UPDATE subscriptions SET title=?, save_path=?, enabled=1, deleted_at=0 WHERE id=?",
-                    (title, save_path, row["id"]),
+                    "UPDATE subscriptions SET title=?, save_path=?, enabled=1, deleted_at=0, "
+                    "mirror_host=? WHERE id=?",
+                    (title, save_path, mirror_host, row["id"]),
                 )
                 self.conn.commit()
                 return row["id"]
             cur = self.conn.execute(
-                "INSERT INTO subscriptions(rss_url, title, save_path, enabled, added_at) "
-                "VALUES (?,?,?,?,?)",
-                (rss_url, title, save_path, 1, time.time()),
+                "INSERT INTO subscriptions(rss_url, title, save_path, enabled, added_at, mirror_host) "
+                "VALUES (?,?,?,?,?,?)",
+                (rss_path, title, save_path, 1, time.time(), mirror_host),
             )
             self.conn.commit()
             return int(cur.lastrowid)
+
+    def sub_set_mirror(self, sub_id: int, mirror_host: str):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE subscriptions SET mirror_host=? WHERE id=?", (mirror_host, sub_id)
+            )
+            self.conn.commit()
+
+    def sub_set_rss(self, sub_id: int, rss_path: str, mirror_host: str | None = None):
+        """旧数据迁移：把完整 URL 改写为「路径 + 最近可用镜像」形式。"""
+        with self._lock:
+            if mirror_host is None:
+                self.conn.execute(
+                    "UPDATE subscriptions SET rss_url=? WHERE id=?", (rss_path, sub_id)
+                )
+            else:
+                self.conn.execute(
+                    "UPDATE subscriptions SET rss_url=?, mirror_host=? WHERE id=?",
+                    (rss_path, mirror_host, sub_id),
+                )
+            self.conn.commit()
 
     def _sub_dict(self, row):
         return dict(row)

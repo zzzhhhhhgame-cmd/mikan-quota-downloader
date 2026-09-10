@@ -1,7 +1,8 @@
 """RSS 链接订阅服务：粘贴任意 Mikan RSS 链接即可自动追更，无需站点账号。
 
-关于"RSS 链接内容会不会更新"：番剧 RSS 是滚动窗口（只保留最近若干条），
-但本服务每次轮询都拉全量条目并去重——新集出现在源里就会被下载，源滚动不影响订阅。
+镜像域名无关：粘贴的链接会提取出域名无关的「路径」（/RSS/…），拉取时按镜像
+优先级依次尝试（见 mirrors.py），成功的域名记录到订阅，下次优先使用；某个镜像
+失效后自动切换到下一个，订阅不会因单个域名失效而停更。
 
 集数生命周期（让"删了订阅/丢了任务就永远不补下"成为过去）：
 1. 新集下载入队时登记到 sub_episodes（state=added），并把 .torrent 存档到本地
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from mqd.session import CloudflareBlocked
 from mqd.torrents import infohash_from_bytes
@@ -32,24 +34,84 @@ class SubscriptionError(RuntimeError):
 
 
 class SubscriptionService:
-    def __init__(self, store, guard, mikan, save_path_provider, torrent_dir="data/torrents"):
+    def __init__(self, store, guard, mikan, save_path_provider, torrent_dir="data/torrents", mirrors=None):
         self.store = store
         self.guard = guard
         self.mikan = mikan
         self.save_path_provider = save_path_provider  # () -> 全局默认下载目录
         self.torrent_dir = torrent_dir  # .torrent 存档目录（断点补拉用）
+        self.mirrors = mirrors  # MirrorService；None=不做镜像故障转移（旧测试路径）
 
     # ---- 管理 ----
 
+    def migrate_legacy_urls(self) -> int:
+        """把旧版存的完整 RSS URL 改写为「路径」形式（域名无关订阅）。"""
+        fixed = 0
+        for sub in self.store.sub_list(deleted=None):
+            url = sub["rss_url"]
+            if url.startswith("/"):
+                continue
+            parts = urlsplit(url)
+            path = parts.path + ("?" + parts.query if parts.query else "")
+            if path.startswith("/"):
+                self.store.sub_set_rss(sub["id"], path)
+                fixed += 1
+        return fixed
+
+    @staticmethod
+    def _rss_path(pasted: str) -> str:
+        """从粘贴的完整链接提取域名无关的路径（自动替换镜像域名的关键）。"""
+        parts = urlsplit(pasted)
+        path = parts.path + ("?" + parts.query if parts.query else "")
+        if not path.lower().startswith(("/rss/", "/feed/")):
+            raise SubscriptionError(
+                "链接看起来不是 Mikan 订阅 RSS：应以 /RSS/ 或 /Feed/ 开头"
+                "（例如 https://任何镜像域名/RSS/Bangumi?bangumiId=…&subgroupid=…）"
+            )
+        return path
+
+    def _candidate_urls(self, rss_path: str, preferred_host: str = ""):
+        """按镜像优先级构造候选 RSS 地址：用户给的域名优先，其余按最近可用排序。"""
+        if self.mirrors is None:
+            return [rss_path if "://" in rss_path else "https://mikan.tangbai.cc" + rss_path]
+        ordered = self.mirrors.ordered_hosts()
+        if preferred_host:
+            if preferred_host in ordered:
+                ordered.remove(preferred_host)
+            ordered.insert(0, preferred_host)
+        return [f"https://{host}{rss_path}" for host in ordered]
+
+    def _fetch_feed_failover(self, rss_path: str, preferred_host: str = ""):
+        """按镜像优先级依次尝试拉取 RSS，返回 (订阅源标题, 条目, 成功的域名)。"""
+        candidates = self._candidate_urls(rss_path, preferred_host)
+        last_exc: Exception | None = None
+        blocked = False
+        for url in candidates:
+            try:
+                feed_title, episodes = self.mikan.fetch_feed(url)
+                host = urlsplit(url).netloc
+                return feed_title, episodes, host
+            except CloudflareBlocked as exc:
+                last_exc, blocked = exc, True  # 被盾的镜像换下一个继续试
+            except Exception as exc:  # 连接失败/404 等同样换下一个
+                last_exc = exc
+        if blocked and last_exc is None:
+            last_exc = CloudflareBlocked("所有镜像均被 Cloudflare 拦截")
+        raise last_exc or RuntimeError("所有镜像均无法访问")
+
     def add(self, rss_url: str, title: str = "", save_path: str = "") -> dict:
-        """添加订阅并立即检查一轮（粘贴即下载）。被 CF 拦截时仍保存、返回 blocked 摘要。"""
+        """添加订阅并立即检查一轮（粘贴即下载）。
+
+        粘贴的链接会自动提取路径并把域名替换为可用镜像（用户给的域名优先尝试）。
+        被全部镜像拦截时仍保存、返回 blocked 摘要。
+        """
         rss_url = (rss_url or "").strip()
-        if not rss_url.lower().startswith(("http://", "https://")):
-            raise SubscriptionError("RSS 链接必须以 http(s):// 开头")
+        rss_path = self._rss_path(rss_url)
+        preferred = urlsplit(rss_url).netloc
         try:
-            feed_title, episodes = self.mikan.fetch_feed(rss_url)
+            feed_title, episodes, host = self._fetch_feed_failover(rss_path, preferred)
         except CloudflareBlocked as exc:
-            sub_id = self.store.sub_add(rss_url, title.strip(), save_path.strip())
+            sub_id = self.store.sub_add(rss_path, title.strip(), save_path.strip(), preferred)
             self.store.sub_mark_checked(sub_id, error=str(exc))
             return {
                 "id": sub_id,
@@ -62,9 +124,9 @@ class SubscriptionService:
                 "detail": str(exc) + COOKIE_HINT,
             }
         except Exception as exc:
-            raise SubscriptionError(f"RSS 拉取失败：{exc}") from exc
+            raise SubscriptionError(f"所有镜像均拉取失败：{exc}") from exc
 
-        sub_id = self.store.sub_add(rss_url, title.strip() or feed_title, save_path.strip())
+        sub_id = self.store.sub_add(rss_path, title.strip() or feed_title, save_path.strip(), host)
         summary = {
             "id": sub_id,
             "title": title.strip() or feed_title,
@@ -112,7 +174,9 @@ class SubscriptionService:
             raise SubscriptionError("订阅已删除（可在订阅页的「已删除」列表恢复）")
         summary = {"id": sub_id, "title": sub["title"], "started": 0, "queued": 0, "errors": []}
         try:
-            _title, episodes = self.mikan.fetch_feed(sub["rss_url"])
+            _title, episodes, host = self._fetch_feed_failover(sub["rss_url"], sub.get("mirror_host") or "")
+            if host != sub.get("mirror_host"):
+                self.store.sub_set_mirror(sub_id, host)  # 记住这次成功的镜像，下次优先
         except CloudflareBlocked as exc:
             self.store.sub_mark_checked(sub_id, error=str(exc))
             summary["blocked"] = True
@@ -126,7 +190,7 @@ class SubscriptionService:
         return summary
 
     def check_all(self) -> dict:
-        """RSS 轮询：逐个启用中的订阅检查；被 CF 拦截则停止本轮避免连环触发。"""
+        """RSS 轮询：逐个启用中的订阅检查；全部镜像被拦则停止本轮避免连环触发。"""
         summary = {"checked": 0, "started": 0, "blocked": 0}
         for sub in self.store.sub_list(enabled_only=True):
             result = self.check_one(sub["id"])

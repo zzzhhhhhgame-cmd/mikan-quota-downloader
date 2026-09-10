@@ -138,7 +138,8 @@ tr:last-child td{border-bottom:0}
         <button class="ghost" onclick="checkAllSubs()">全部立即检查</button>
       </div>
       <div class="hint">粘贴即下载本轮全部集数；之后按设定间隔自动检查新集（去重，不会重复下）。
-        每个集数会持续追踪到下载完成——期间任务丢失会自动重新入队。</div>
+        粘贴任意镜像域名的链接都可以——域名会自动替换为可用镜像（列表在「⚙ 设置」维护）。
+        每个集数会追踪到下载完成，期间任务丢失会自动重新入队。</div>
     </div>
     <div class="card">
       <h2>我的订阅</h2>
@@ -148,7 +149,7 @@ tr:last-child td{border-bottom:0}
       </table>
     </div>
     <div class="card">
-      <h2>已删除 <span class="mut" style="font-weight:400;font-size:13px">删除只是移出自动追更，可随时恢复；未下完的集数不会自动续下，恢复订阅后才会继续</span></h2>
+      <h2>已删除 <span class="mut" style="font-weight:400;font-size:13px">删除只是移出自动追更；「恢复」后继续追更，未下完的集数也会自动补拉</span></h2>
       <table>
         <thead><tr><th style="width:26%">名称</th><th>删除时间</th><th style="width:220px">操作</th></tr></thead>
         <tbody id="subs-deleted"><tr><td colspan="3" class="mut">无</td></tr></tbody>
@@ -207,6 +208,20 @@ tr:last-child td{border-bottom:0}
       <div class="hint">速率层（跑多快）与每日容量限额（主页，每天跑多少）相互独立；0 或留空 = 不限速。</div>
     </div>
     <div class="card">
+      <h2>Mikan 镜像站</h2>
+      <div class="row" style="margin-top:0">
+        <input id="mirror-url" placeholder="添加镜像域名，如 https://mikanani.kas.pub（可用域名会自动用于订阅）" style="flex:1;min-width:240px;width:auto">
+        <button onclick="addMirror()">添加域名</button>
+        <button class="ghost" onclick="checkMirrors()">一键检测</button>
+      </div>
+      <table>
+        <thead><tr><th>域名</th><th style="width:34%">状态</th><th style="width:110px">操作</th></tr></thead>
+        <tbody id="mirrors"><tr><td colspan="3" class="mut">加载中…</td></tr></tbody>
+      </table>
+      <div class="hint">订阅只记路径（/RSS/…），拉取时按「最近可用优先」依次尝试这些域名；
+        某个镜像失效会自动切换到下一个，也可以在这里随时补充新域名。</div>
+    </div>
+    <div class="card">
       <h2>站点 Cookie（Cloudflare 兜底 · 无需登录）</h2>
       <div id="session-status" class="mut">…</div>
       <div class="row"><button class="ghost" onclick="checkSession()">测试可用性</button>
@@ -237,7 +252,7 @@ function showPage(name){
   document.querySelectorAll('.page').forEach(p => p.style.display = (p.id === 'page-'+name ? 'block' : 'none'));
   document.querySelectorAll('.side a').forEach(a => a.classList.toggle('active', a.dataset.page === name));
   if(name === 'subs') loadSubs();
-  if(name === 'settings'){ loadSettings(); refreshSession(); }
+  if(name === 'settings'){ loadSettings(); loadMirrors(); refreshSession(); }
   poll();
 }
 document.querySelectorAll('.side a[data-page]').forEach(a =>
@@ -414,6 +429,32 @@ async function addMagnet(){
       body: JSON.stringify({magnet: uri, sequential: $('magnet-seq').checked})});
     toast('磁力任务已添加：'+r.save_path+'（体积在元数据到达后计入限额）');
     $('magnet-uri').value = ''; poll();
+  }catch(e){ toast(e.message); }
+}
+async function loadMirrors(){
+  try{
+    const d = await api('/api/mirrors');
+    $('mirrors').innerHTML = d.mirrors.length? d.mirrors.map(m=>{
+      const state = !m.last_checked? '<span class="badge">未检测</span>'
+        : (m.last_ok? '<span class="badge ok">可用</span>' : `<span class="badge bad" title="${(m.last_error||'').replace(/"/g,'&quot;')}">异常</span>`);
+      const when = m.last_checked? new Date(m.last_checked*1000).toLocaleString() : '';
+      return `<tr><td>${m.base_url}</td><td class="mut">${state} <span class="mut">${when}</span></td>
+        <td><button class="small ghost" onclick="delMirror(${m.id})">删除</button></td></tr>`;
+    }).join('') : '<tr><td colspan="3" class="mut">镜像列表为空：请至少添加一个可用域名</td></tr>';
+  }catch(e){ $('mirrors').innerHTML = '<tr><td colspan="3" class="mut">加载失败：'+e.message+'</td></tr>'; }
+}
+async function addMirror(){
+  try{
+    const r = await api('/api/mirrors', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({base_url: $('mirror-url').value.trim()})});
+    toast(r.available? `已添加（探测可用）：${r.base_url}` : `已添加，但探测失败：${r.detail}`);
+    $('mirror-url').value = ''; loadMirrors();
+  }catch(e){ toast(e.message); }
+}
+async function delMirror(id){ try{ await api(`/api/mirrors/${id}`, {method:'DELETE'}); loadMirrors(); }catch(e){ toast(e.message); } }
+async function checkMirrors(){
+  try{ const r = await api('/api/mirrors/check', {method:'POST'});
+    toast(`检测完成：${r.available}/${r.checked} 个可用`); loadMirrors();
   }catch(e){ toast(e.message); }
 }
 async function importCookies(){
