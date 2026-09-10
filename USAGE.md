@@ -71,8 +71,11 @@ bash scripts/make_app.sh    # 构建一次：生成仓库目录下的「Anime Do
 
 - 可以把它拖到「应用程序」文件夹，或拖到程序坞/桌面；
 - 重复双击只会激活已打开的窗口，不会多开实例；
+- **首次启动**会弹窗请求访问「文稿」文件夹（下载目录在里面）——**必须点「允许」**，
+  否则应用会静默退出。若曾点过「不允许」，终端执行
+  `tccutil reset SystemPolicyDocumentsFolder cc.anime.downloader` 后重新打开即可重新授权；
 - 开机自动启动：系统设置 → 通用 → 登录项，添加该应用；
-- 运行日志在 `data/app-gui.log`；
+- 运行日志在 `~/Library/Logs/AnimeDownloader/app-gui.log`；
 - Windows：双击 `scripts/AnimeDownloader.bat`（pythonw 无黑窗口），可右键创建快捷方式到桌面。
 
 > 更新代码后重新双击打开即可（.app 只是启动器，始终运行仓库里的最新代码，无需重新构建）。
