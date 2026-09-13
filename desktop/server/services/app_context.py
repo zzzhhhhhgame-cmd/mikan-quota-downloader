@@ -85,8 +85,7 @@ class AppContext:
 def build_context(cfg: dict, config_path: str | None = None) -> AppContext:
     """按配置装配真实依赖（测试直接手工构造 AppContext）。"""
     desktop_cfg = cfg.get("desktop", {})
-    paused = bool(desktop_cfg.get("paused"))
-    engine = _build_engine(cfg, paused=paused)
+    engine = _build_engine(cfg)
 
     store = Store(cfg["monitor"].get("db_file", "data/state.db"))
     download_limit = float(cfg["quota"].get("daily_limit_gb", 30))
@@ -111,6 +110,8 @@ def build_context(cfg: dict, config_path: str | None = None) -> AppContext:
     )
     mikan = MikanClient(http)
     torrent_dir = str(desktop_cfg.get("torrent_dir", "data/torrents"))
+    mirrors = MirrorService(store)
+    mirrors.ensure_seeded()  # 内置常见 Mikan 镜像域名（可在设置页增删）
     ctx = AppContext(
         cfg=cfg,
         engine=engine,
@@ -121,15 +122,14 @@ def build_context(cfg: dict, config_path: str | None = None) -> AppContext:
         config_store=ConfigStore(config_path),
         default_save_path=str(desktop_cfg.get("save_path") or ""),
         mikan=mikan,
-        paused=paused,
+        mirrors=mirrors,
+        downloads_paused=bool(desktop_cfg.get("downloads_paused")),
+        seeds_paused=bool(desktop_cfg.get("seeds_paused")),
     )
     ctx.subs = SubscriptionService(
         store, guard, mikan, save_path_provider=lambda: ctx.default_save_path,
-        torrent_dir=torrent_dir,
+        torrent_dir=torrent_dir, mirrors=ctx.mirrors,
     )
-    ctx.mirrors = MirrorService(store)
-    ctx.mirrors.ensure_seeded()  # 内置常见 Mikan 镜像域名（可在设置页增删）
-    ctx.subs.mirrors = ctx.mirrors
     ctx.subs.migrate_legacy_urls()  # 旧订阅的完整 URL 改写为域名无关路径
     try:
         ctx.subs.organize()  # 启动时离线整理：补目录、把引擎任务文件搬进各番剧文件夹
@@ -139,7 +139,7 @@ def build_context(cfg: dict, config_path: str | None = None) -> AppContext:
     return ctx
 
 
-def _build_engine(cfg: dict, paused: bool = False) -> Engine:
+def _build_engine(cfg: dict) -> Engine:
     desktop_cfg = cfg.get("desktop", {})
     choice = desktop_cfg.get("engine", "auto")
     bind_ip = desktop_cfg.get("bind_ip") or None
@@ -150,7 +150,6 @@ def _build_engine(cfg: dict, paused: bool = False) -> Engine:
                 listen_port=int(desktop_cfg.get("bt_port", 6881)),
                 save_path_default=desktop_cfg.get("save_path", "."),
                 bind_ip=bind_ip,
-                paused=paused,
             )
         if choice == "libtorrent":
             raise EngineError("desktop.engine=libtorrent 但本机未安装 libtorrent")
@@ -162,5 +161,4 @@ def _build_engine(cfg: dict, paused: bool = False) -> Engine:
         qbt.get("password", ""),
         category=qbt.get("category", "bangumi"),
         bind_ip=bind_ip,
-        paused=paused,
     )
