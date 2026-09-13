@@ -68,6 +68,13 @@ body{margin:0;color:var(--fg);
 .trow .up{color:#f97316}.trow .dn{color:var(--acc)}
 .unit{color:var(--mut);font-size:12px}
 .cpu{margin-left:6px}
+.switch-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.switch-item{display:flex;align-items:center;justify-content:space-between;gap:6px;
+  background:rgba(255,255,255,.5);border:1px solid var(--line);border-radius:10px;padding:7px 10px}
+.switch-item .mut{font-size:13px}
+.switch-item button{min-width:64px}
+.switch-item button.on{background:var(--ok-soft);color:var(--ok);border-color:rgba(34,197,94,.4)}
+.switch-item button.off{background:var(--bad-soft);color:var(--bad);border-color:rgba(239,68,68,.4)}
 
 /* 主内容 */
 .main{margin-left:212px;padding:26px 30px 60px;max-width:1020px}
@@ -155,12 +162,15 @@ tr:last-child td{border-bottom:0}
     <a data-page="add">下载</a>
   </nav>
   <div class="side-bottom">
-    <button id="master-toggle" class="master-btn" onclick="togglePause()">⏸ 全部停止</button>
     <div class="traffic-widget">
       <canvas id="traffic-chart" width="376" height="112"></canvas>
       <div class="trow"><span class="t-ico up">↑</span><b id="sp-up" class="up">0</b><span class="unit">B/s</span></div>
       <div class="trow"><span class="t-ico dn">↓</span><b id="sp-down" class="dn">0</b><span class="unit">B/s</span></div>
       <div class="trow"><span class="t-ico">⚙</span><b id="mem">–</b><span class="unit">MB</span><span id="cpu" class="unit cpu"></span></div>
+    </div>
+    <div class="switch-pair">
+      <div class="switch-item"><span class="mut">下载</span><button id="sw-dl" class="small ghost" onclick="toggleSwitch('downloads_paused')">运行中</button></div>
+      <div class="switch-item"><span class="mut">做种</span><button id="sw-seed" class="small ghost" onclick="toggleSwitch('seeds_paused')">已暂停</button></div>
     </div>
     <a data-page="settings">⚙ 设置</a>
   </div>
@@ -585,7 +595,11 @@ async function pollStats(){
     $('sp-down').textContent = fmtSpeed(s.down_bps);
     $('mem').textContent = s.mem_mb ?? '–';
     $('cpu').textContent = s.cpu_percent != null ? s.cpu_percent + '%' : '';
-    if(pausedState !== s.paused) updatePauseUI(s.paused);
+    if(switchState.downloads_paused !== s.downloads_paused || switchState.seeds_paused !== s.seeds_paused){
+      switchState.downloads_paused = s.downloads_paused;
+      switchState.seeds_paused = s.seeds_paused;
+      updateSwitchUI('downloads_paused'); updateSwitchUI('seeds_paused');
+    }
     drawTraffic();
   }catch(e){}
 }
@@ -599,22 +613,33 @@ async function checkSession(){
     $('session-check').textContent = s.ok? '✓ 会话可用' : '✗ '+(s.reason||'不可用'); refreshSession(); }catch(e){ toast(e.message);}
 }
 async function clearSession(){ await api('/api/session', {method:'DELETE'}); refreshSession(); toast('Cookie 已清除'); }
-let pausedState = false;
-function updatePauseUI(paused){
-  pausedState = paused;
-  const b = $('master-toggle');
-  b.textContent = paused ? '▶ 全部开始' : '⏸ 全部停止';
-  b.classList.toggle('on', paused);
+const switchState = {downloads_paused: false, seeds_paused: false};
+function updateSwitchUI(kind){
+  const b = $(kind === 'downloads_paused' ? 'sw-dl' : 'sw-seed');
+  const on = switchState[kind];
+  b.textContent = on ? '已暂停' : '运行中';
+  b.classList.toggle('on', !on);
+  b.classList.toggle('off', on);
 }
-async function togglePause(){
+async function toggleSwitch(kind){
   try{
-    const r = await api('/api/pause', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({paused: !pausedState})});
-    updatePauseUI(r.paused);
-    toast(r.paused ? '已全部停止：下载与做种已暂停（重启后保持）' : '已全部恢复');
+    const r = await api('/api/switches', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({[kind]: !switchState[kind]})});
+    switchState[kind] = r[kind];
+    toast(r[kind] ? (kind==='downloads_paused'?'下载已停止（重启后保持）':'做种已停止（重启后保持）')
+                  : (kind==='downloads_paused'?'下载已恢复':'做种已恢复'));
   }catch(e){ toast(e.message); }
 }
+async function loadSwitches(){
+  try{
+    const s = await api('/api/stats');
+    switchState.downloads_paused = s.downloads_paused;
+    switchState.seeds_paused = s.seeds_paused;
+    updateSwitchUI('downloads_paused'); updateSwitchUI('seeds_paused');
+  }catch(e){}
+}
 showPage("home");  // 打开即显示主页
+loadSwitches();
 refreshSession(); loadSettings(); loadSubs(); poll(); setInterval(poll, 2500); setInterval(pollStats, 1000); pollStats();
 </script>
 </body>

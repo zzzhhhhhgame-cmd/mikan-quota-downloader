@@ -32,7 +32,7 @@ _ALERT_INTERVAL_S = 0.5
 
 class LibtorrentEngine(Engine):
     def __init__(self, listen_port: int = 6881, save_path_default: str = ".", bind_ip: str | None = None,
-                 paused: bool = False):
+                 paused: bool = False, downloads_paused: bool = False, seeds_paused: bool = False):
         if not LIBTORRENT_AVAILABLE:
             raise EngineError(
                 "libtorrent 未安装：Windows/Linux 用 pip install libtorrent；"
@@ -55,6 +55,11 @@ class LibtorrentEngine(Engine):
         self._session = lt.session(settings)
         if paused:
             self._session.pause()  # 总开关：启动即保持全局暂停
+        # 下载/做种独立开关：记录开关状态与被其按住的任务（恢复时只放开自己按住的）
+        self._downloads_paused = downloads_paused
+        self._seeds_paused = seeds_paused
+        self._dl_held: set[str] = set()
+        self._seed_held: set[str] = set()
         self._lock = threading.Lock()
         self._states: dict[str, TorrentState] = {}
         self._errors: dict[str, str] = {}
@@ -134,15 +139,49 @@ class LibtorrentEngine(Engine):
         if not handle.move_storage(new_path):
             raise EngineError(f"文件搬迁失败（可能磁盘不可写）: {new_path}")
 
-    def pause_all(self):
-        """全局暂停：会话级暂停，所有下载与做种立即停止传输。"""
-        self._session.pause()
+    def pause_downloads(self):
+        """下载开关·开：暂停所有正在下载的任务（记住是谁按下的）。"""
+        self._downloads_paused = True
+        for t in self.list():
+            if t.state == TaskState.DOWNLOADING:
+                try:
+                    self.pause(t.sha)
+                    self._dl_held.add(t.sha)
+                except EngineError:
+                    pass
 
-    def resume_all(self):
-        """全局恢复：解除会话级暂停。"""
-        resume = getattr(self._session, "resume", None)
-        if callable(resume):
-            resume()
+    def resume_downloads(self):
+        self._downloads_paused = False
+        for sha in list(self._dl_held):
+            self._dl_held.discard(sha)
+            if sha in self._seed_held:
+                continue  # 仍被做种开关按住
+            try:
+                self.resume(sha)
+            except EngineError:
+                pass
+
+    def pause_seeds(self):
+        """做种开关·开：暂停所有正在做种/上传的任务。"""
+        self._seeds_paused = True
+        for t in self.list():
+            if t.state == TaskState.SEEDING:
+                try:
+                    self.pause(t.sha)
+                    self._seed_held.add(t.sha)
+                except EngineError:
+                    pass
+
+    def resume_seeds(self):
+        self._seeds_paused = False
+        for sha in list(self._seed_held):
+            self._seed_held.discard(sha)
+            if sha in self._dl_held:
+                continue  # 仍被下载开关按住
+            try:
+                self.resume(sha)
+            except EngineError:
+                pass
 
     def pause(self, sha: str):
         handle = self._find(sha)

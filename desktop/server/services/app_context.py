@@ -33,27 +33,43 @@ class AppContext:
     mikan: MikanClient | None = None  # 站点客户端（订阅轮询与种子下载共用）
     subs: SubscriptionService | None = None  # RSS 链接订阅服务
     mirrors: MirrorService | None = None  # Mikan 镜像/副站域名管理
-    paused: bool = False  # 全局停止总开关（暂停所有下载与做种，重启保持）
+    downloads_paused: bool = False  # 下载开关：暂停所有正在下载的任务（重启保持）
+    seeds_paused: bool = False  # 做种开关：暂停所有做种/上传任务（重启保持）
 
-    def set_paused(self, value: bool):
-        """总开关：全局暂停/恢复。暂停时调度器跳过检查，引擎停止全部传输。"""
+    def set_downloads_paused(self, value: bool):
         from ..engine.base import EngineError
 
-        self.paused = bool(value)
+        self.downloads_paused = bool(value)
         try:
-            if self.paused:
-                self.engine.pause_all()
+            if self.downloads_paused:
+                self.engine.pause_downloads()
             else:
-                self.engine.resume_all()
+                self.engine.resume_downloads()
         except EngineError:
             pass
         if self.config_store is not None:
-            self.config_store.update("desktop", {"paused": self.paused})
+            self.config_store.update("desktop", {"downloads_paused": self.downloads_paused})
+
+    def set_seeds_paused(self, value: bool):
+        from ..engine.base import EngineError
+
+        self.seeds_paused = bool(value)
+        try:
+            if self.seeds_paused:
+                self.engine.pause_seeds()
+            else:
+                self.engine.resume_seeds()
+        except EngineError:
+            pass
+        if self.config_store is not None:
+            self.config_store.update("desktop", {"seeds_paused": self.seeds_paused})
 
     def start(self):
         self.engine.start()
-        if self.paused:
-            self.engine.pause_all()  # 上次退出时处于全局暂停 → 保持
+        if self.downloads_paused:
+            self.engine.pause_downloads()
+        if self.seeds_paused:
+            self.engine.pause_seeds()
         if self.scheduler is not None:
             self.scheduler.start()
 
@@ -86,7 +102,7 @@ def build_context(cfg: dict, config_path: str | None = None) -> AppContext:
         cfg["mikan"].get("session_file", "data/session.json"),
     )
     scheduler = SyncScheduler(guard, int(cfg["monitor"].get("interval_minutes", 20)),
-                              should_run=lambda: not ctx.paused)
+                              should_run=lambda: not ctx.downloads_paused)
     http = HttpClient(
         cfg["mikan"]["base_url"],
         session_file=cfg["mikan"].get("session_file"),

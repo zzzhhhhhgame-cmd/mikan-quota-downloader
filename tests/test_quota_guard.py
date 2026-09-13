@@ -27,6 +27,10 @@ class FakeEngine(Engine):
         self.moved = []
         self.download_bps = None
         self.upload_bps = None
+        self.downloads_paused = False
+        self.seeds_paused = False
+        self._dl_held = set()
+        self._seed_held = set()
         self._seq = 0
 
     def start(self):
@@ -75,6 +79,34 @@ class FakeEngine(Engine):
             )
         )
         return sha
+
+    def pause_downloads(self):
+        self.downloads_paused = True
+        for t in self.torrents:
+            if t.state == TaskState.DOWNLOADING:
+                t.state = TaskState.PAUSED
+                self._dl_held.add(t.sha)
+
+    def resume_downloads(self):
+        self.downloads_paused = False
+        for t in self.torrents:
+            if t.state == TaskState.PAUSED and t.sha not in self._seed_held:
+                t.state = TaskState.DOWNLOADING
+                self._dl_held.discard(t.sha)
+
+    def pause_seeds(self):
+        self.seeds_paused = True
+        for t in self.torrents:
+            if t.state == TaskState.SEEDING:
+                t.state = TaskState.PAUSED
+                self._seed_held.add(t.sha)
+
+    def resume_seeds(self):
+        self.seeds_paused = False
+        for t in self.torrents:
+            if t.state == TaskState.PAUSED and t.sha in self._seed_held:
+                t.state = TaskState.SEEDING
+                self._seed_held.discard(t.sha)
 
     def pause(self, sha):
         self._require(sha)

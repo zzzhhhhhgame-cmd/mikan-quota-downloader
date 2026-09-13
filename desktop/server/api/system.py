@@ -40,23 +40,28 @@ def live_stats(request: Request):
     except Exception:
         pass  # 未安装 psutil 时省略性能占用
     return {"down_bps": down, "up_bps": up, "mem_mb": mem_mb, "cpu_percent": cpu,
-            "paused": bool(getattr(ctx, "paused", False))}
+            "downloads_paused": bool(getattr(ctx, "downloads_paused", False)),
+            "seeds_paused": bool(getattr(ctx, "seeds_paused", False))}
 
 
-@router.post("/pause")
-def set_global_pause(request: Request, payload: dict):
-    """全局停止总开关：暂停/恢复所有下载与做种（状态持久化，重启保持）。
-
-    暂停期间：引擎停止全部传输，调度器跳过订阅检查；恢复后立即补拉/放行。
-    """
+@router.post("/switches")
+def set_switches(request: Request, payload: dict):
+    """独立开关：下载 / 做种 各自暂停或恢复（状态持久化，重启保持）。"""
     ctx = request.app.state.ctx
-    ctx.set_paused(bool(payload.get("paused")))
-    if not ctx.paused and ctx.scheduler is not None:
+    if "downloads_paused" in payload:
+        ctx.set_downloads_paused(bool(payload["downloads_paused"]))
+    if "seeds_paused" in payload:
+        ctx.set_seeds_paused(bool(payload["seeds_paused"]))
+    if not ctx.downloads_paused and ctx.scheduler is not None:
         try:
-            ctx.scheduler.run_once()
+            ctx.scheduler.run_once()  # 恢复后立即补拉/放行
         except Exception:
             pass
-    return {"ok": True, "paused": ctx.paused}
+    return {"ok": True,
+            "downloads_paused": ctx.downloads_paused,
+            "seeds_paused": ctx.seeds_paused}
+
+
 
 
 @router.get("/quota")

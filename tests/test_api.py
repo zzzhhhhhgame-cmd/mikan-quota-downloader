@@ -112,16 +112,17 @@ class TasksApiTest(ApiTestBase):
         self.assertIn("mem_mb", data)
         self.assertIn("cpu_percent", data)
 
-    def test_global_pause_toggle(self):
-        resp = self.client.post("/api/pause", json={"paused": True})
+    def test_switches_toggle(self):
+        resp = self.client.post("/api/switches", json={"downloads_paused": True})
         self.assertEqual(resp.status_code, 200)
-        self.assertTrue(resp.json()["paused"])
-        self.assertTrue(self.engine.all_paused)
-        self.assertTrue(self.client.get("/api/stats").json()["paused"])
+        self.assertTrue(resp.json()["downloads_paused"])
+        self.assertTrue(self.engine.downloads_paused)
 
-        self.client.post("/api/pause", json={"paused": False})
-        self.assertFalse(self.engine.all_paused)
-        self.assertFalse(self.client.get("/api/stats").json()["paused"])
+        self.client.post("/api/switches", json={"downloads_paused": False, "seeds_paused": True})
+        self.assertFalse(self.engine.downloads_paused)
+        self.assertTrue(self.engine.seeds_paused)
+        self.assertFalse(self.client.get("/api/stats").json()["downloads_paused"])
+        self.assertTrue(self.client.get("/api/stats").json()["seeds_paused"])
 
     def test_rate_limit_endpoint(self):
         resp = self.client.post("/api/rate-limit", json={"down_bps": 2048, "up_bps": 1024})

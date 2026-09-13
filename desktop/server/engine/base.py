@@ -72,12 +72,20 @@ class Engine(ABC):
         """把任务的已下载文件搬迁到新目录（任务继续，引擎会自动重校验）。"""
 
     @abstractmethod
-    def pause_all(self):
-        """全局暂停：所有任务（下载+做种）立即停止传输。"""
+    def pause_downloads(self):
+        """下载开关·开：暂停所有正在下载的任务。"""
 
     @abstractmethod
-    def resume_all(self):
-        """全局恢复：解除 pause_all。"""
+    def resume_downloads(self):
+        """下载开关·关：恢复由 pause_downloads 暂停的任务。"""
+
+    @abstractmethod
+    def pause_seeds(self):
+        """做种开关·开：暂停所有正在做种/上传的任务。"""
+
+    @abstractmethod
+    def resume_seeds(self):
+        """做种开关·关：恢复由 pause_seeds 暂停的任务。"""
 
     @abstractmethod
     def pause(self, sha: str):

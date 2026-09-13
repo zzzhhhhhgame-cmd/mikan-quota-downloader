@@ -112,19 +112,52 @@ class QbtWebuiEngine(Engine):
         )
         resp.raise_for_status()
 
-    def pause_all(self):
-        """全局暂停：暂停所有任务（下载+做种）。"""
-        self._post_compat("torrents/pause", "torrents/stop", sha="all")
-
-    def resume_all(self):
-        """全局恢复：恢复所有任务。"""
-        self._post_compat("torrents/resume", "torrents/start", sha="all")
-
     def pause(self, sha: str):
         self._post_compat("torrents/pause", "torrents/stop", sha=sha)
 
     def resume(self, sha: str):
         self._post_compat("torrents/resume", "torrents/start", sha=sha)
+
+    def pause_all(self):
+        self.pause_downloads()
+        self.pause_seeds()
+
+    def resume_all(self):
+        self.resume_downloads()
+        self.resume_seeds()
+
+    def pause_downloads(self):
+        """下载开关·开：暂停所有正在下载的任务。"""
+        self.pause_matching(
+            lambda t: t.state == TaskState.DOWNLOADING, "torrents/pause")
+
+    def resume_downloads(self):
+        """下载开关·关：恢复所有处于暂停的下载任务。"""
+        self.resume_matching(
+            lambda t: t.state == TaskState.PAUSED
+            and float(t.size) > 0 and float(t.done) < float(t.size),
+            "torrents/resume")
+
+    def pause_seeds(self):
+        """做种开关·开：暂停所有正在做种/上传的任务。"""
+        self.pause_matching(
+            lambda t: t.state == TaskState.SEEDING, "torrents/pause")
+
+    def resume_seeds(self):
+        """做种开关·关：恢复所有处于暂停的做种任务。"""
+        self.resume_matching(
+            lambda t: t.state == TaskState.PAUSED
+            and float(t.size) > 0 and float(t.done) >= float(t.size),
+            "torrents/resume")
+
+    def pause_matching(self, predicate, endpoint):
+        shas = [t.sha for t in self.list() if predicate(t)]
+        if shas:
+            resp = self.session.post(
+                f"{self.base}/api/v2/{endpoint}",
+                data={"hashes": "|".join(shas)}, timeout=15,
+            )
+            resp.raise_for_status()
 
     def remove(self, sha: str, with_files: bool = False):
         hashes = self._require_known(sha)
