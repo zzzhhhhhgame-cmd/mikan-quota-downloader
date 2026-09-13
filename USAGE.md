@@ -9,7 +9,7 @@
 ## 0. 五分钟上手（最少步骤）
 
 ```bash
-cd /Users/<你的用户名>/Documents/Anime/mikan-quota-downloader
+cd ~/Documents/Anime/mikan-quota-downloader
 .venv/bin/python desktop/app.py --config config.yaml   # ✅ 环境已就绪，直接可跑
 ```
 
@@ -34,7 +34,7 @@ cd /Users/<你的用户名>/Documents/Anime/mikan-quota-downloader
 ### 1.2 虚拟环境与依赖（首次一次即可）
 
 ```bash
-cd /Users/<你的用户名>/Documents/Anime/mikan-quota-downloader
+cd ~/Documents/Anime/mikan-quota-downloader
 python3 -m venv .venv
 .venv/bin/pip install -e ".[desktop]"        # Windows: .venv\Scripts\pip install -e ".[desktop]"
 ```
