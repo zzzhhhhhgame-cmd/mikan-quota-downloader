@@ -1,5 +1,3 @@
-"""测试共享夹具：FakeMikan（Mikan 客户端内存实现，支持按域名模拟故障）。"""
-
 from urllib.parse import urlsplit
 
 from mqd.mikan import Episode

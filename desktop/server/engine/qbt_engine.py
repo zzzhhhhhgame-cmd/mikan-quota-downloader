@@ -22,13 +22,15 @@ _ETA_UNKNOWN = 8640000  # qBt 的 eta 未知哨兵值
 
 
 class QbtWebuiEngine(Engine):
-    def __init__(self, base_url: str, username: str = "admin", password: str = "", category: str = "bangumi", bind_ip: str | None = None):
+    def __init__(self, base_url: str, username: str = "admin", password: str = "", category: str = "bangumi",
+                 bind_ip: str | None = None, paused: bool = False):
         self.base = base_url.rstrip("/")
         self.category = category
         self._username = username
         self._password = password
         # bind_ip：BT 直连（绕过 VPN），映射到 qBt 的网络接口绑定；None=跟随系统路由
         self._bind_ip = bind_ip
+        self._paused = paused  # 登录后立即应用全局暂停
         self.session = requests.Session()
 
     # ---- 生命周期 ----
@@ -49,6 +51,8 @@ class QbtWebuiEngine(Engine):
                 timeout=10,
             )
             resp.raise_for_status()
+        if self._paused:
+            self.pause_all()
 
     def stop(self):
         pass  # qBt 是外部进程，生命周期由它自己管理
@@ -107,6 +111,14 @@ class QbtWebuiEngine(Engine):
             timeout=30,
         )
         resp.raise_for_status()
+
+    def pause_all(self):
+        """全局暂停：暂停所有任务（下载+做种）。"""
+        self._post_compat("torrents/pause", "torrents/stop", sha="all")
+
+    def resume_all(self):
+        """全局恢复：恢复所有任务。"""
+        self._post_compat("torrents/resume", "torrents/start", sha="all")
 
     def pause(self, sha: str):
         self._post_compat("torrents/pause", "torrents/stop", sha=sha)
@@ -184,7 +196,8 @@ class QbtWebuiEngine(Engine):
         raise EngineError(f"任务不存在: {sha}")
 
     def _post_compat(self, *paths, sha: str):
-        hashes = self._require_known(sha)
+        # sha="all" 是 qBt 原生语法（全部任务），无需存在性校验
+        hashes = sha if sha == "all" else self._require_known(sha)
         for path in paths:
             resp = self.session.post(
                 f"{self.base}/api/v2/{path}", data={"hashes": hashes}, timeout=15

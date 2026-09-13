@@ -31,7 +31,8 @@ _ALERT_INTERVAL_S = 0.5
 
 
 class LibtorrentEngine(Engine):
-    def __init__(self, listen_port: int = 6881, save_path_default: str = ".", bind_ip: str | None = None):
+    def __init__(self, listen_port: int = 6881, save_path_default: str = ".", bind_ip: str | None = None,
+                 paused: bool = False):
         if not LIBTORRENT_AVAILABLE:
             raise EngineError(
                 "libtorrent 未安装：Windows/Linux 用 pip install libtorrent；"
@@ -52,6 +53,8 @@ class LibtorrentEngine(Engine):
         if bind_ip:
             settings["outgoing_interfaces"] = bind_ip
         self._session = lt.session(settings)
+        if paused:
+            self._session.pause()  # 总开关：启动即保持全局暂停
         self._lock = threading.Lock()
         self._states: dict[str, TorrentState] = {}
         self._errors: dict[str, str] = {}
@@ -130,6 +133,16 @@ class LibtorrentEngine(Engine):
         handle = self._find(sha)
         if not handle.move_storage(new_path):
             raise EngineError(f"文件搬迁失败（可能磁盘不可写）: {new_path}")
+
+    def pause_all(self):
+        """全局暂停：会话级暂停，所有下载与做种立即停止传输。"""
+        self._session.pause()
+
+    def resume_all(self):
+        """全局恢复：解除会话级暂停。"""
+        resume = getattr(self._session, "resume", None)
+        if callable(resume):
+            resume()
 
     def pause(self, sha: str):
         handle = self._find(sha)

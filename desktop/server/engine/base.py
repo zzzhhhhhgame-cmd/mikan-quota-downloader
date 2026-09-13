@@ -72,6 +72,14 @@ class Engine(ABC):
         """把任务的已下载文件搬迁到新目录（任务继续，引擎会自动重校验）。"""
 
     @abstractmethod
+    def pause_all(self):
+        """全局暂停：所有任务（下载+做种）立即停止传输。"""
+
+    @abstractmethod
+    def resume_all(self):
+        """全局恢复：解除 pause_all。"""
+
+    @abstractmethod
     def pause(self, sha: str):
         """暂停任务（进入等待队列语义）。"""
 

@@ -1,4 +1,8 @@
-"""订阅轮询调度器（M2 骨架）：按间隔触发限额同步；M3 注入订阅抓取任务。"""
+"""订阅轮询调度器：按间隔触发限额同步 + 订阅检查；启动立即执行第一轮。
+
+全局暂停时（should_run 返回 False）跳过整轮：不拉订阅、不入队新任务，
+引擎层的全部传输也已被暂停。
+"""
 
 from __future__ import annotations
 
@@ -9,13 +13,18 @@ log = logging.getLogger("mqd.scheduler")
 
 
 class SyncScheduler:
-    def __init__(self, guard, interval_minutes: int = 20, mikan_job=None):
+    def __init__(self, guard, interval_minutes: int = 20, mikan_job=None, should_run=None):
         self._guard = guard
         self._interval_s = max(1, int(interval_minutes)) * 60
-        self._mikan_job = mikan_job  # M3：订阅轮询（拉 RSS → admit 新集）
+        self._mikan_job = mikan_job  # 订阅轮询任务（拉 RSS → 新集 → 限额入队）
+        self._should_run = should_run  # () -> bool；False 时本轮跳过（全局暂停中）
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self.last_result: dict | None = None
+
+    def set_interval(self, minutes: int):
+        """运行时调整检查间隔（分钟），下一轮生效。"""
+        self._interval_s = max(1, int(minutes)) * 60
 
     def start(self):
         if self._thread is not None:
@@ -28,10 +37,6 @@ class SyncScheduler:
         if self._thread is not None:
             self._thread.join(timeout=5)
             self._thread = None
-
-    def set_interval(self, minutes: int):
-        """运行时调整检查间隔（分钟），下一轮生效。"""
-        self._interval_s = max(1, int(minutes)) * 60
 
     def run_once(self) -> dict:
         resumed, gate_closed = self._guard.sync()
@@ -50,10 +55,13 @@ class SyncScheduler:
 
     def _loop(self):
         try:
-            self.run_once()  # 启动立即执行一轮：恢复做种/补拉丢失任务不等间隔
+            self.run_once()  # 启动立即执行第一轮：恢复做种/补拉丢失任务不等间隔
         except Exception:
             log.exception("启动轮次失败")
         while not self._stop.wait(self._interval_s):
+            if self._should_run is not None and not self._should_run():
+                log.info("全局暂停中，本轮跳过")
+                continue
             try:
                 self.run_once()
             except Exception:

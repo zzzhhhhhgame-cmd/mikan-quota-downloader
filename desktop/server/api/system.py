@@ -39,7 +39,24 @@ def live_stats(request: Request):
         cpu = round(proc.cpu_percent(interval=None), 1)
     except Exception:
         pass  # 未安装 psutil 时省略性能占用
-    return {"down_bps": down, "up_bps": up, "mem_mb": mem_mb, "cpu_percent": cpu}
+    return {"down_bps": down, "up_bps": up, "mem_mb": mem_mb, "cpu_percent": cpu,
+            "paused": bool(getattr(ctx, "paused", False))}
+
+
+@router.post("/pause")
+def set_global_pause(request: Request, payload: dict):
+    """全局停止总开关：暂停/恢复所有下载与做种（状态持久化，重启保持）。
+
+    暂停期间：引擎停止全部传输，调度器跳过订阅检查；恢复后立即补拉/放行。
+    """
+    ctx = request.app.state.ctx
+    ctx.set_paused(bool(payload.get("paused")))
+    if not ctx.paused and ctx.scheduler is not None:
+        try:
+            ctx.scheduler.run_once()
+        except Exception:
+            pass
+    return {"ok": True, "paused": ctx.paused}
 
 
 @router.get("/quota")

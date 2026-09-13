@@ -49,6 +49,13 @@ body{margin:0;color:var(--fg);
 .side a.active{background:rgba(37,99,235,.16);color:var(--acc);font-weight:600;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.5)}
 .side-bottom{margin-top:auto;border-top:1px solid rgba(255,255,255,.7);padding-top:10px}
+.master-btn{width:100%;border-radius:12px;padding:11px 10px;font-size:14px;font-weight:600;
+  color:#fff;border:1px solid rgba(255,255,255,.42);cursor:pointer;margin-bottom:10px;
+  background:linear-gradient(180deg,#f87171,#dc2626);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4), 0 4px 14px rgba(220,38,38,.25)}
+.master-btn:hover{filter:brightness(1.08)}
+.master-btn.on{background:linear-gradient(180deg,#4ade80,#16a34a);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4), 0 4px 14px rgba(22,163,74,.25)}
 
 /* 实时监视器（Clash Verge 风格） */
 .traffic-widget{background:rgba(255,255,255,.55);border:1px solid var(--line);border-radius:14px;
@@ -148,6 +155,7 @@ tr:last-child td{border-bottom:0}
     <a data-page="add">下载</a>
   </nav>
   <div class="side-bottom">
+    <button id="master-toggle" class="master-btn" onclick="togglePause()">⏸ 全部停止</button>
     <div class="traffic-widget">
       <canvas id="traffic-chart" width="376" height="112"></canvas>
       <div class="trow"><span class="t-ico up">↑</span><b id="sp-up" class="up">0</b><span class="unit">B/s</span></div>
@@ -577,6 +585,7 @@ async function pollStats(){
     $('sp-down').textContent = fmtSpeed(s.down_bps);
     $('mem').textContent = s.mem_mb ?? '–';
     $('cpu').textContent = s.cpu_percent != null ? s.cpu_percent + '%' : '';
+    if(pausedState !== s.paused) updatePauseUI(s.paused);
     drawTraffic();
   }catch(e){}
 }
@@ -590,6 +599,21 @@ async function checkSession(){
     $('session-check').textContent = s.ok? '✓ 会话可用' : '✗ '+(s.reason||'不可用'); refreshSession(); }catch(e){ toast(e.message);}
 }
 async function clearSession(){ await api('/api/session', {method:'DELETE'}); refreshSession(); toast('Cookie 已清除'); }
+let pausedState = false;
+function updatePauseUI(paused){
+  pausedState = paused;
+  const b = $('master-toggle');
+  b.textContent = paused ? '▶ 全部开始' : '⏸ 全部停止';
+  b.classList.toggle('on', paused);
+}
+async function togglePause(){
+  try{
+    const r = await api('/api/pause', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({paused: !pausedState})});
+    updatePauseUI(r.paused);
+    toast(r.paused ? '已全部停止：下载与做种已暂停（重启后保持）' : '已全部恢复');
+  }catch(e){ toast(e.message); }
+}
 showPage("home");  // 打开即显示主页
 refreshSession(); loadSettings(); loadSubs(); poll(); setInterval(poll, 2500); setInterval(pollStats, 1000); pollStats();
 </script>

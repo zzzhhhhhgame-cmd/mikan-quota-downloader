@@ -97,6 +97,12 @@ class FakeEngine(Engine):
         self.moved.append((sha, new_path))
         self._set(sha, save_path=new_path)
 
+    def pause_all(self):
+        self.all_paused = True
+
+    def resume_all(self):
+        self.all_paused = False
+
     def set_global_limit(self, down_bps):
         pass
 

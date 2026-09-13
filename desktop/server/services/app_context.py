@@ -33,9 +33,27 @@ class AppContext:
     mikan: MikanClient | None = None  # 站点客户端（订阅轮询与种子下载共用）
     subs: SubscriptionService | None = None  # RSS 链接订阅服务
     mirrors: MirrorService | None = None  # Mikan 镜像/副站域名管理
+    paused: bool = False  # 全局停止总开关（暂停所有下载与做种，重启保持）
+
+    def set_paused(self, value: bool):
+        """总开关：全局暂停/恢复。暂停时调度器跳过检查，引擎停止全部传输。"""
+        from ..engine.base import EngineError
+
+        self.paused = bool(value)
+        try:
+            if self.paused:
+                self.engine.pause_all()
+            else:
+                self.engine.resume_all()
+        except EngineError:
+            pass
+        if self.config_store is not None:
+            self.config_store.update("desktop", {"paused": self.paused})
 
     def start(self):
         self.engine.start()
+        if self.paused:
+            self.engine.pause_all()  # 上次退出时处于全局暂停 → 保持
         if self.scheduler is not None:
             self.scheduler.start()
 
@@ -51,7 +69,8 @@ class AppContext:
 def build_context(cfg: dict, config_path: str | None = None) -> AppContext:
     """按配置装配真实依赖（测试直接手工构造 AppContext）。"""
     desktop_cfg = cfg.get("desktop", {})
-    engine = _build_engine(cfg)
+    paused = bool(desktop_cfg.get("paused"))
+    engine = _build_engine(cfg, paused=paused)
 
     store = Store(cfg["monitor"].get("db_file", "data/state.db"))
     download_limit = float(cfg["quota"].get("daily_limit_gb", 30))
@@ -66,7 +85,8 @@ def build_context(cfg: dict, config_path: str | None = None) -> AppContext:
         cfg["mikan"]["base_url"],
         cfg["mikan"].get("session_file", "data/session.json"),
     )
-    scheduler = SyncScheduler(guard, int(cfg["monitor"].get("interval_minutes", 20)))
+    scheduler = SyncScheduler(guard, int(cfg["monitor"].get("interval_minutes", 20)),
+                              should_run=lambda: not ctx.paused)
     http = HttpClient(
         cfg["mikan"]["base_url"],
         session_file=cfg["mikan"].get("session_file"),
@@ -85,6 +105,7 @@ def build_context(cfg: dict, config_path: str | None = None) -> AppContext:
         config_store=ConfigStore(config_path),
         default_save_path=str(desktop_cfg.get("save_path") or ""),
         mikan=mikan,
+        paused=paused,
     )
     ctx.subs = SubscriptionService(
         store, guard, mikan, save_path_provider=lambda: ctx.default_save_path,
@@ -102,7 +123,7 @@ def build_context(cfg: dict, config_path: str | None = None) -> AppContext:
     return ctx
 
 
-def _build_engine(cfg: dict) -> Engine:
+def _build_engine(cfg: dict, paused: bool = False) -> Engine:
     desktop_cfg = cfg.get("desktop", {})
     choice = desktop_cfg.get("engine", "auto")
     bind_ip = desktop_cfg.get("bind_ip") or None
@@ -113,6 +134,7 @@ def _build_engine(cfg: dict) -> Engine:
                 listen_port=int(desktop_cfg.get("bt_port", 6881)),
                 save_path_default=desktop_cfg.get("save_path", "."),
                 bind_ip=bind_ip,
+                paused=paused,
             )
         if choice == "libtorrent":
             raise EngineError("desktop.engine=libtorrent 但本机未安装 libtorrent")
@@ -124,4 +146,5 @@ def _build_engine(cfg: dict) -> Engine:
         qbt.get("password", ""),
         category=qbt.get("category", "bangumi"),
         bind_ip=bind_ip,
+        paused=paused,
     )

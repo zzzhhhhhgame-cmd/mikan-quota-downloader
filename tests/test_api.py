@@ -112,6 +112,17 @@ class TasksApiTest(ApiTestBase):
         self.assertIn("mem_mb", data)
         self.assertIn("cpu_percent", data)
 
+    def test_global_pause_toggle(self):
+        resp = self.client.post("/api/pause", json={"paused": True})
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()["paused"])
+        self.assertTrue(self.engine.all_paused)
+        self.assertTrue(self.client.get("/api/stats").json()["paused"])
+
+        self.client.post("/api/pause", json={"paused": False})
+        self.assertFalse(self.engine.all_paused)
+        self.assertFalse(self.client.get("/api/stats").json()["paused"])
+
     def test_rate_limit_endpoint(self):
         resp = self.client.post("/api/rate-limit", json={"down_bps": 2048, "up_bps": 1024})
         self.assertEqual(resp.status_code, 200)
