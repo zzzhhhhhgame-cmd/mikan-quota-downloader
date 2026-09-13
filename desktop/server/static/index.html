@@ -434,7 +434,12 @@ async function addSub(){
 }
 async function checkSub(id){
   try{ const r = await api(`/api/subscriptions/${id}/check`, {method:'POST'});
-    toast(r.blocked? '被 Cloudflare 拦截：请导入 Cookie（无需登录）' : `检查完成：新开始 ${r.started} 条，排队 ${r.queued} 条`);
+    if(r.blocked){ toast('被 Cloudflare 拦截：请导入 Cookie（无需登录）'); }
+    else{
+      let m = `检查完成：新开始 ${r.started} 条，排队 ${r.queued} 条，恢复丢失 ${r.restored||0} 条`;
+      if(r.errors && r.errors.length) m += `；失败 ${r.errors.length} 条（可能镜像缺该种子，下轮自动换镜像重试）`;
+      toast(m);
+    }
     loadSubs(); poll();
   }catch(e){ toast(e.message); }
 }

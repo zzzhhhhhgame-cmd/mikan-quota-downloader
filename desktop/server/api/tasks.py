@@ -109,6 +109,8 @@ def remove_task(sha: str, request: Request, with_files: bool = False):
         ctx.engine.remove(sha, with_files=with_files)
     except EngineError as exc:
         raise HTTPException(404, str(exc))
+    # 手动删除的集数视为不需要：封存后不再被订阅自动恢复/做种
+    ctx.store.episode_seal_by_sha(sha)
     return {"ok": True}
 
 

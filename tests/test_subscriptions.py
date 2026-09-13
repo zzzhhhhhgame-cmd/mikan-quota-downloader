@@ -252,6 +252,58 @@ class SubscriptionServiceTest(unittest.TestCase):
         self.assertTrue(_os.path.isfile(_os.path.join(dl, "新名字", "a.txt")))
         self.assertFalse(_os.path.exists(old_dir))
 
+    def test_legacy_seen_episode_still_downloads(self):
+        """第 10 集卡死问题的回归测试：老订阅只有 seen 标记也必须能下载。"""
+        path = "/RSS/Bangumi?bangumiId=3992&subgroupid=370"
+        self.mikan.set_feed("https://mikanime.tv" + path, "Mikan Project - 尼古喵喵",
+                            [make_episode("g10", published=10.0)])
+        self.mikan.sizes = {"g10": 60}
+        self.store.mark_seen("g10")  # 旧版遗留：已标记 seen 但任务早已丢失
+        sub_id = self.store.sub_add(path, "尼古喵喵", "/dl/尼古喵喵", "mikanime.tv")
+        result = self.subs.check_one(sub_id)
+        self.assertEqual(result["started"], 1)  # 不再被 seen 挡住
+        self.assertEqual(len(self.engine.torrents), 1)
+
+    def test_reconcile_restores_done_episode_for_seeding(self):
+        """重启后做种恢复：已完成过的集数任务丢失 → 从存档重新入队做种。"""
+        self.mikan.set_feed(URL, "某番", [make_episode("g1", published=1.0)])
+        self.mikan.sizes = {"g1": 60}
+        sub_id = self.subs.add(URL)["id"]
+        sha = self.store.episode_pending(sub_id)[0]["sha"]
+        self.store.episode_mark_done("g1")
+        self.store.mark_seen("g1")
+        self.engine.remove(sha)  # 模拟重启后任务丢失
+        self.assertEqual(len(self.engine.list()), 0)
+
+        self.subs.reconcile(self.store.sub_get(sub_id))
+        self.assertEqual(len(self.engine.list()), 1)  # 重新入队做种
+
+    def test_sealed_episode_never_restored(self):
+        self.mikan.set_feed(URL, "某番", [make_episode("g1", published=1.0)])
+        sub_id = self.subs.add(URL)["id"]
+        sha = self.store.episode_pending(sub_id)[0]["sha"]
+        self.engine.remove(sha)
+        self.store.episode_seal_by_sha(sha)  # 用户手动删除过 → 封存
+        self.subs.reconcile(self.store.sub_get(sub_id))
+        self.assertEqual(len(self.engine.list()), 0)  # 不恢复
+
+    def test_download_failover_rewrites_host(self):
+        """当前镜像下载种子失败 → 自动换下一个镜像重试。"""
+        ep = make_episode("g1")
+        self.mikan.dead_hosts = {"mikan.example"}  # 条目所在域名下载失败
+        raw = self.subs._download_with_failover(ep, preferred_host="mikan.example")
+        self.assertTrue(raw.startswith(b"d"))  # 换镜像后成功拿到种子
+
+    def test_download_failover_all_dead_raises(self):
+        self.mikan.set_feed(URL, "某番", [make_episode("g1", published=1.0)])
+        ep = self.subs  # 占位
+        e = __import__("mqd.mikan", fromlist=["Episode"]).Episode(
+            guid="g9", title="t", page_url="https://mikan.example/Home/Episode/g9", published=0)
+        self.mikan.dead_hosts = {"mikan.tangbai.cc", "mikanime.tv", "mikanani.me",
+                                 "mikan.sakiko.de", "mikanani.kas.pub", "mikan.example"}
+        with self.assertRaises(RuntimeError):
+            self.subs._download_with_failover(e, preferred_host="mikan.example")
+
     def test_purge_removes_tracking(self):
         self.mikan.set_feed(URL, "某番", [])
         sub_id = self.subs.add(URL)["id"]

@@ -306,6 +306,14 @@ class Store:
             )
             self.conn.commit()
 
+    def episode_seal_by_sha(self, sha: str):
+        """用户在任务列表手动删除的集数：封存，不再自动恢复/做种。"""
+        with self._lock:
+            self.conn.execute(
+                "UPDATE sub_episodes SET state='sealed' WHERE sha=?", (sha,)
+            )
+            self.conn.commit()
+
     def sub_set_enabled(self, sub_id: int, enabled: bool):
         with self._lock:
             self.conn.execute(

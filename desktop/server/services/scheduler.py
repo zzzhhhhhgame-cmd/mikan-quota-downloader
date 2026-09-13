@@ -49,8 +49,12 @@ class SyncScheduler:
         return self.last_result
 
     def _loop(self):
+        try:
+            self.run_once()  # 启动立即执行一轮：恢复做种/补拉丢失任务不等间隔
+        except Exception:
+            log.exception("启动轮次失败")
         while not self._stop.wait(self._interval_s):
             try:
                 self.run_once()
-            except Exception:  # 单轮失败不影响常驻
+            except Exception:
                 log.exception("调度轮次失败")

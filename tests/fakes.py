@@ -29,6 +29,9 @@ class FakeMikan:
 
     def download_torrent(self, episode):
         self._check()
+        host = urlsplit(episode.page_url).netloc
+        if host in self.dead_hosts:
+            raise RuntimeError(f"连接失败: {host}")
         size = self.sizes.get(episode.guid, 10)
         tag = b"%02x" % (abs(hash(episode.guid)) % 256)
         return make_torrent(size, tag)
