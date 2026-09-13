@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import pathlib
 import socket
 import sys
@@ -20,6 +21,16 @@ _ROOT = pathlib.Path(__file__).resolve().parents[1]
 for _p in (str(_ROOT / "src"), str(_ROOT / "desktop")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
+
+# 桌面双击启动时 stdout/stderr 不可见，日志同时写入文件便于排障
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    handlers=[
+        logging.FileHandler(_ROOT / "data" / "app.log", encoding="utf-8"),
+        logging.StreamHandler(sys.stderr),
+    ],
+)
 
 
 def _free_port() -> int:

@@ -68,11 +68,12 @@ body{margin:0;color:var(--fg);
 .trow .up{color:#f97316}.trow .dn{color:var(--acc)}
 .unit{color:var(--mut);font-size:12px}
 .cpu{margin-left:6px}
-.switch-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
-.switch-item{display:flex;align-items:center;justify-content:space-between;gap:6px;
+.switch-pair{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.switch-item{display:flex;align-items:center;justify-content:space-between;gap:8px;
   background:rgba(255,255,255,.5);border:1px solid var(--line);border-radius:10px;padding:7px 10px}
 .switch-item .mut{font-size:13px}
-.switch-item button{min-width:64px}
+.switch-item button{white-space:nowrap}
+.trow b{margin-left:auto;font-variant-numeric:tabular-nums}
 .switch-item button.on{background:var(--ok-soft);color:var(--ok);border-color:rgba(34,197,94,.4)}
 .switch-item button.off{background:var(--bad-soft);color:var(--bad);border-color:rgba(239,68,68,.4)}
 
@@ -164,13 +165,13 @@ tr:last-child td{border-bottom:0}
   <div class="side-bottom">
     <div class="traffic-widget">
       <canvas id="traffic-chart" width="376" height="112"></canvas>
-      <div class="trow"><span class="t-ico up">↑</span><b id="sp-up" class="up">0</b><span class="unit">B/s</span></div>
-      <div class="trow"><span class="t-ico dn">↓</span><b id="sp-down" class="dn">0</b><span class="unit">B/s</span></div>
+      <div class="trow"><span class="t-ico up">↑</span><b id="sp-up" class="up">0 B/s</b></div>
+      <div class="trow"><span class="t-ico dn">↓</span><b id="sp-down" class="dn">0 B/s</b></div>
       <div class="trow"><span class="t-ico">⚙</span><b id="mem">–</b><span class="unit">MB</span><span id="cpu" class="unit cpu"></span></div>
     </div>
     <div class="switch-pair">
       <div class="switch-item"><span class="mut">下载</span><button id="sw-dl" class="small ghost" onclick="toggleSwitch('downloads_paused')">运行中</button></div>
-      <div class="switch-item"><span class="mut">做种</span><button id="sw-seed" class="small ghost" onclick="toggleSwitch('seeds_paused')">已暂停</button></div>
+      <div class="switch-item"><span class="mut">做种</span><button id="sw-seed" class="small ghost" onclick="toggleSwitch('seeds_paused')">运行中</button></div>
     </div>
     <a data-page="settings">⚙ 设置</a>
   </div>
@@ -626,6 +627,7 @@ async function toggleSwitch(kind){
     const r = await api('/api/switches', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({[kind]: !switchState[kind]})});
     switchState[kind] = r[kind];
+    updateSwitchUI(kind);
     toast(r[kind] ? (kind==='downloads_paused'?'下载已停止（重启后保持）':'做种已停止（重启后保持）')
                   : (kind==='downloads_paused'?'下载已恢复':'做种已恢复'));
   }catch(e){ toast(e.message); }
