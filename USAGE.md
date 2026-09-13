@@ -64,13 +64,15 @@ echo "$(brew --prefix libtorrent-rasterbar)/lib/python3.14/site-packages" \
 ### 1.5 作为桌面应用启动（✅ 推荐方式，无需终端）
 
 ```bash
-bash scripts/make_app.sh    # 构建一次：生成仓库目录下的「Anime Downloader.app」（含图标）
+bash scripts/make_app.sh    # 构建并自动安装到「应用程序」（含图标）
 ```
 
-之后**双击「Anime Downloader.app」即可打开**，完全不经过终端：
+之后在**启动台 / Spotlight（搜 anime）/ 应用程序文件夹**里双击「Anime Downloader」即可打开，完全不经过终端：
 
-- 可以把它拖到「应用程序」文件夹，或拖到程序坞/桌面；
+- 脚本会自动把应用安装到 `/Applications` 并清理仓库目录里的构建副本——**整个系统只有一份**；
+- 更新代码后重新运行 `make_app.sh` 会自动覆盖 /Applications 里的旧版本；
 - 重复双击只会激活已打开的窗口，不会多开实例；
+- 若出现重复入口：说明存在手动复制过的旧副本，删除多余的那个即可（各副本都只是启动器，删掉不影响数据）。
 - **首次启动**会弹窗请求访问「文稿」文件夹（下载目录在里面）——**必须点「允许」**，
   否则应用会静默退出。若曾点过「不允许」，终端执行
   `tccutil reset SystemPolicyDocumentsFolder cc.anime.downloader` 后重新打开即可重新授权；

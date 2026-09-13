@@ -56,5 +56,17 @@ exec "\$REPO/.venv/bin/python" "\$REPO/desktop/app.py" --config "\$REPO/config.y
 LAUNCH
 chmod +x "$APP/Contents/MacOS/launcher"
 
-echo "✅ 已构建: $APP"
-echo "   双击即可打开；也可拖到「应用程序」文件夹或程序坞。"
+# 5) 安装：优先安装到 /Applications（系统设置/启动台/Spotlight 只会显示这一份）
+#    并删除仓库目录里的构建副本，避免出现两个入口
+if [ -d "/Applications" ] && [ -w "/Applications" ]; then
+  rm -rf "/Applications/$APP_NAME.app"
+  cp -R "$APP" "/Applications/$APP_NAME.app"
+  rm -rf "$APP"
+  APP="/Applications/$APP_NAME.app"
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+    -f "$APP" 2>/dev/null || true
+  echo "✅ 已安装: $APP"
+else
+  echo "✅ 已构建: $APP（未自动安装到 /Applications）"
+fi
+echo "   双击即可打开；也可拖到程序坞。更新代码后重新运行本脚本即可。"

@@ -54,11 +54,12 @@ brew install libtorrent-rasterbar
 echo "$(brew --prefix libtorrent-rasterbar)/lib/python3.14/site-packages" \
   > .venv/lib/python3.14/site-packages/libtorrent-brew.pth
 
-# 桌面应用（默认弹窗；pywebview 不可用时自动退化为浏览器）
-.venv/bin/python desktop/app.py --config config.yaml
-# 或强制浏览器模式
-.venv/bin/python desktop/app.py --browser
+# 构建并安装到「应用程序」（自动清理仓库内副本，全系统唯一入口）
+bash scripts/make_app.sh
 ```
+
+之后从启动台/Spotlight 双击「Anime Downloader」即可；更新代码后重新运行
+`bash scripts/make_app.sh` 会自动覆盖 /Applications 里的旧版本。
 
 应用内提供：
 
